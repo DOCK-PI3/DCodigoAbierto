@@ -1,0 +1,13 @@
+[package]
+name    = "dca-events"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+dca-config = { path = "../config" }
+dca-types  = { path = "../types" }
+tokio      = { workspace = true }
+crossterm  = { workspace = true }
+futures    = { workspace = true }
+tracing   = { workspace = true }
+serde_json = { workspace = true }

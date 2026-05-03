@@ -1,0 +1,12 @@
+[package]
+name    = "dca-ui"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+dca-config = { path = "../config" }
+dca-types  = { path = "../types" }
+
+ratatui       = { workspace = true }
+unicode-width = { workspace = true }
+tracing       = { workspace = true }

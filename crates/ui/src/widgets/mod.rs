@@ -1,0 +1,13 @@
+pub mod chat;
+pub mod command_palette;
+pub mod completion;
+pub mod editor;
+pub mod fuzzy;
+pub mod home;
+pub mod meta_panel;
+pub mod model_selector;
+pub mod permission;
+pub mod references;
+pub mod sidebar;
+pub mod statusbar;
+pub mod tabbar;
