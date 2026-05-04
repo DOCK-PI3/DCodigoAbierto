@@ -5,7 +5,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
 const MAX_TOOL_ITERATIONS: u32 = 20;
-const STREAM_TIMEOUT_SECS: u64 = 180;
+const STREAM_TIMEOUT_SECS: u64 = 600;
 const APPROVAL_TIMEOUT_SECS: u64 = 300;
 
 use crate::provider::{AiEvent, AiMessage, AiProvider, ToolCall, ToolDef};

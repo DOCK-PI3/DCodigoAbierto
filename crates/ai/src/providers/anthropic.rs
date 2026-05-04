@@ -17,7 +17,6 @@ impl AnthropicProvider {
     pub fn new(base_url: &str, api_key: &str) -> Self {
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
-            .timeout(std::time::Duration::from_secs(180))
             .build()
             .unwrap_or_default();
         Self {
