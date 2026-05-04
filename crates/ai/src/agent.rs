@@ -96,54 +96,60 @@ impl AiAgent {
                 return Ok(());
             }
 
-            // Lanzar stream con timeout
-            let (inner_tx, mut inner_rx) = unbounded_channel::<AiEvent>();
-            let stream_fut = self.provider.chat_stream(&context, &defs, self.max_tokens, self.temperature, self.top_p, inner_tx);
+            // Lanzar stream — forward de chunks en tiempo real (no bufferizar hasta EOF)
+            // El bloque {} garantiza que stream_fut se libera ANTES de mutar context
+            let (assistant_text, tool_calls_this_turn) = {
+                let (inner_tx, mut inner_rx) = unbounded_channel::<AiEvent>();
+                let stream_fut = self.provider.chat_stream(
+                    &context, &defs, self.max_tokens, self.temperature, self.top_p, inner_tx,
+                );
+                tokio::pin!(stream_fut);
 
-            let stream_result = tokio::select! {
-                _ = token.cancelled() => {
-                    let _ = event_tx.send(AiEvent::Done);
-                    return Ok(());
-                }
-                res = timeout(std::time::Duration::from_secs(STREAM_TIMEOUT_SECS), stream_fut) => res,
-            };
+                let mut assistant_text = String::new();
+                let mut tool_calls_this_turn: Vec<ToolCall> = vec![];
+                let mut stream_finished = false;
 
-            match stream_result {
-                Err(_elapsed) => {
-                    let _ = event_tx.send(AiEvent::Error(format!(
-                        "Timeout: el modelo no respondió en {STREAM_TIMEOUT_SECS}s."
-                    )));
-                    return Ok(());
-                }
-                Ok(Err(e)) => {
-                    let _ = event_tx.send(AiEvent::Error(e.to_string()));
-                    return Ok(());
-                }
-                Ok(Ok(())) => {}
-            }
+                // Timeout como future pinned para reutilizar en el loop
+                let sleep = tokio::time::sleep(std::time::Duration::from_secs(STREAM_TIMEOUT_SECS));
+                tokio::pin!(sleep);
 
-            // Recopilar respuesta completa
-            let mut assistant_text = String::new();
-            let mut tool_calls_this_turn: Vec<ToolCall> = vec![];
-
-            while let Ok(event) = inner_rx.try_recv() {
-                match event {
-                    AiEvent::Chunk(t) => {
-                        let _ = event_tx.send(AiEvent::Chunk(t.clone()));
-                        assistant_text.push_str(&t);
+                // Driveamos el stream y forwadeamos eventos concurrentemente
+                // para que el UI reciba chunks a medida que llegan, no al final.
+                loop {
+                    if stream_finished {
+                        // Drenar eventos residuales sin bloquear
+                        while let Ok(ev) = inner_rx.try_recv() {
+                            forward_event(ev, &event_tx, &mut assistant_text, &mut tool_calls_this_turn);
+                        }
+                        break;
                     }
-                    AiEvent::ToolCallRequest(tc) => {
-                        let _ = event_tx.send(AiEvent::ToolCallRequest(tc.clone()));
-                        tool_calls_this_turn.push(tc);
+
+                    tokio::select! {
+                        _ = token.cancelled() => {
+                            let _ = event_tx.send(AiEvent::Done);
+                            return Ok(());
+                        }
+                        _ = &mut sleep => {
+                            let _ = event_tx.send(AiEvent::Error(format!(
+                                "Timeout: el modelo no respondió en {STREAM_TIMEOUT_SECS}s."
+                            )));
+                            return Ok(());
+                        }
+                        res = &mut stream_fut => {
+                            if let Err(e) = res {
+                                let _ = event_tx.send(AiEvent::Error(e.to_string()));
+                                return Ok(());
+                            }
+                            stream_finished = true;
+                        }
+                        Some(ev) = inner_rx.recv() => {
+                            forward_event(ev, &event_tx, &mut assistant_text, &mut tool_calls_this_turn);
+                        }
                     }
-                    AiEvent::Done => {}
-                    AiEvent::Error(e) => {
-                        let _ = event_tx.send(AiEvent::Error(e));
-                        return Ok(());
-                    }
-                    AiEvent::ToolResult { .. } => {} // emitido por el agente, no por los providers
                 }
-            }
+
+                (assistant_text, tool_calls_this_turn)
+            }; // stream_fut y borrows de &context se liberan aquí
 
             // Guardar mensaje del asistente en sesión
             if tool_calls_this_turn.is_empty() {
@@ -259,4 +265,28 @@ fn push_tool_result_to_context(
 pub enum ApprovalDecision {
     Approved(String),
     Denied(String),
+}
+
+// ── Helper: forwardear evento del provider al canal externo ──────────────────
+
+fn forward_event(
+    ev: AiEvent,
+    event_tx: &UnboundedSender<AiEvent>,
+    text: &mut String,
+    tool_calls: &mut Vec<ToolCall>,
+) {
+    match ev {
+        AiEvent::Chunk(t) => {
+            let _ = event_tx.send(AiEvent::Chunk(t.clone()));
+            text.push_str(&t);
+        }
+        AiEvent::ToolCallRequest(tc) => {
+            let _ = event_tx.send(AiEvent::ToolCallRequest(tc.clone()));
+            tool_calls.push(tc);
+        }
+        AiEvent::Error(e) => {
+            let _ = event_tx.send(AiEvent::Error(e));
+        }
+        AiEvent::Done | AiEvent::ToolResult { .. } => {}
+    }
 }

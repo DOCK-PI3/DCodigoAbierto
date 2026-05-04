@@ -98,24 +98,24 @@ async fn fetch_and_clean(url: &str) -> Result<String> {
 
     let bytes = resp.bytes().await
         .map_err(|e| color_eyre::eyre::eyre!("Error leyendo respuesta: {e}"))?;
-    let raw = String::from_utf8_lossy(&bytes);
 
-    // Detectar si es HTML o texto plano
-    let is_html = raw.contains("<html") || raw.contains("<!DOCTYPE") || raw.contains("<body");
+    // HTML parsing es CPU-intensivo — hacerlo en spawn_blocking para no bloquear el runtime
+    let url_owned = url.to_string();
+    let text = tokio::task::spawn_blocking(move || {
+        let raw = String::from_utf8_lossy(&bytes);
+        let is_html = raw.contains("<html") || raw.contains("<!DOCTYPE") || raw.contains("<body");
+        let text = if is_html { html_to_text(&raw) } else { raw.into_owned() };
 
-    let text = if is_html {
-        html_to_text(&raw)
-    } else {
-        raw.into_owned()
-    };
+        const MAX: usize = 40 * 1024;
+        if text.len() > MAX {
+            format!("{}\n\n[Contenido truncado a 40 KB — URL: {url_owned}]", &text[..MAX])
+        } else {
+            format!("{text}\n\n[Fuente: {url_owned}]")
+        }
+    }).await
+    .map_err(|e| color_eyre::eyre::eyre!("Error en spawn_blocking: {e}"))?;
 
-    // Truncar a 40 KB para no sobrecargar el contexto del modelo
-    const MAX: usize = 40 * 1024;
-    if text.len() > MAX {
-        Ok(format!("{}\n\n[Contenido truncado a 40 KB — URL: {url}]", &text[..MAX]))
-    } else {
-        Ok(format!("{text}\n\n[Fuente: {url}]"))
-    }
+    Ok(text)
 }
 
 async fn ddg_search(query: &str, max: usize) -> Result<String> {
@@ -133,22 +133,27 @@ async fn ddg_search(query: &str, max: usize) -> Result<String> {
     }
 
     let bytes = resp.bytes().await?;
-    let html = String::from_utf8_lossy(&bytes);
+    let query_owned = query.to_string();
 
-    // Parsear resultados de DDG lite
-    let results = parse_ddg_lite(&html, max);
-    if results.is_empty() {
-        // Fallback: devolver el texto limpio de la página de resultados
-        let text = html_to_text(&html);
-        let excerpt: String = text.lines()
-            .filter(|l| !l.trim().is_empty())
-            .take(40)
-            .collect::<Vec<_>>()
-            .join("\n");
-        return Ok(format!("Resultados de búsqueda para «{query}»:\n\n{excerpt}"));
-    }
+    // Parsear en spawn_blocking — el HTML de DDG puede ser grande
+    let result = tokio::task::spawn_blocking(move || {
+        let html = String::from_utf8_lossy(&bytes);
+        let results = parse_ddg_lite(&html, max);
+        if results.is_empty() {
+            let text = html_to_text(&html);
+            let excerpt: String = text.lines()
+                .filter(|l| !l.trim().is_empty())
+                .take(40)
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!("Resultados de búsqueda para «{query_owned}»:\n\n{excerpt}")
+        } else {
+            format!("Resultados de búsqueda para «{query_owned}»:\n\n{results}")
+        }
+    }).await
+    .map_err(|e| color_eyre::eyre::eyre!("Error en spawn_blocking: {e}"))?;
 
-    Ok(format!("Resultados de búsqueda para «{query}»:\n\n{results}"))
+    Ok(result)
 }
 
 /// Extrae resultados de la versión lite de DuckDuckGo.
@@ -385,7 +390,8 @@ fn url_decode(s: &str) -> String {
 
 fn build_client() -> Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(20))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
         .user_agent("Mozilla/5.0 (compatible; dca/1.0)")
         .redirect(reqwest::redirect::Policy::limited(5))
         .build()?)

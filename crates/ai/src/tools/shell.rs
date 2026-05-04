@@ -24,7 +24,7 @@ impl Tool for ShellTool {
                 "properties": {
                     "command": { "type": "string", "description": "Comando a ejecutar en /bin/sh" },
                     "cwd": { "type": "string", "description": "Directorio de trabajo (opcional)" },
-                    "timeout_secs": { "type": "integer", "description": "Tiempo máximo en segundos (default 30)" }
+                    "timeout_secs": { "type": "integer", "description": "Tiempo máximo en segundos (default 120, máx 600)" }
                 }
             }),
         }
@@ -35,7 +35,7 @@ impl Tool for ShellTool {
     async fn execute(&self, args: &serde_json::Value) -> Result<String> {
         let command = args["command"].as_str()
             .ok_or_else(|| color_eyre::eyre::eyre!("Falta 'command'"))?;
-        let timeout_secs = args["timeout_secs"].as_u64().unwrap_or(30);
+        let timeout_secs = args["timeout_secs"].as_u64().unwrap_or(120).min(600);
 
         let mut cmd = tokio::process::Command::new("/bin/sh");
         cmd.arg("-c").arg(command)
@@ -68,6 +68,14 @@ impl Tool for ShellTool {
             result.push_str(&stderr);
         }
         result.push_str(&format!("\n[exit: {exit}]"));
-        Ok(result)
+
+        // Truncar salida muy larga para no saturar el contexto del modelo
+        const MAX_OUTPUT: usize = 20 * 1024;
+        if result.len() > MAX_OUTPUT {
+            let truncated = &result[..MAX_OUTPUT];
+            Ok(format!("{truncated}\n[... salida truncada a 20 KB ...]\n[exit: {exit}]"))
+        } else {
+            Ok(result)
+        }
     }
 }
