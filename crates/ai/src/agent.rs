@@ -112,6 +112,7 @@ impl AiAgent {
                         let _ = event_tx.send(AiEvent::Error(e));
                         return Ok(());
                     }
+                    AiEvent::ToolResult { .. } => {} // emitido por el agente, no por los providers
                 }
             }
 
@@ -170,6 +171,17 @@ impl AiAgent {
                         format!("Error: {e}")
                     }
                 };
+
+                // Notificar al UI el resultado de la herramienta
+                let preview = if result.len() > 300 {
+                    format!("{}…", &result[..300])
+                } else {
+                    result.clone()
+                };
+                let _ = event_tx.send(crate::provider::AiEvent::ToolResult {
+                    name: tc.name.clone(),
+                    result: preview,
+                });
 
                 push_tool_result_to_context(&mut context, session, &tc.id, &result);
             }

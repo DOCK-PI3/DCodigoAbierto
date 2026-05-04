@@ -95,12 +95,17 @@ impl<'a> Widget for ChatWidget<'a> {
             items.push(ListItem::new(Line::from("")));
         }
 
-        let skip = self.scroll.min(items.len().saturating_sub(inner.height as usize));
+        // scroll = líneas subidas desde el fondo (0 = mostrar fondo)
+        let total  = items.len();
+        let height = inner.height as usize;
+        let max_from_top = total.saturating_sub(height);
+        let clamped = self.scroll.min(max_from_top);
+        let skip = max_from_top.saturating_sub(clamped);
 
         let visible: Vec<ListItem> = items
             .into_iter()
             .skip(skip)
-            .take(inner.height as usize)
+            .take(height)
             .collect();
 
         let list = List::new(visible);

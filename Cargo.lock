@@ -419,6 +419,7 @@ name = "dca-events"
 version = "0.1.0"
 dependencies = [
  "crossterm",
+ "dca-ai",
  "dca-config",
  "dca-types",
  "futures",

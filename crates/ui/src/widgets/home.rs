@@ -55,6 +55,8 @@ pub struct HomeWidget<'a> {
     pub version: &'a str,
     /// Historial de mensajes de la sesión actual
     pub messages: &'a [ChatMessageView],
+    /// Offset de scroll (líneas renderizadas)
+    pub scroll: usize,
 }
 
 impl<'a> Widget for HomeWidget<'a> {
@@ -105,8 +107,11 @@ impl<'a> HomeWidget<'a> {
         let items = self.build_message_items(msg_area.width);
         let total  = items.len();
         let height = msg_area.height as usize;
-        let skip   = total.saturating_sub(height);
-        let visible: Vec<ListItem> = items.into_iter().skip(skip).collect();
+        // scroll = líneas subidas desde el fondo (0 = mostrar fondo)
+        let max_from_top = total.saturating_sub(height);
+        let clamped = self.scroll.min(max_from_top);
+        let skip = max_from_top.saturating_sub(clamped);
+        let visible: Vec<ListItem> = items.into_iter().skip(skip).take(height).collect();
         List::new(visible)
             .style(Style::default().bg(BG_MSG))
             .render(msg_area, buf);

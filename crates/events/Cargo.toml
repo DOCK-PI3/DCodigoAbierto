@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 dca-config = { path = "../config" }
 dca-types  = { path = "../types" }
+dca-ai     = { path = "../ai" }
 tokio      = { workspace = true }
 crossterm  = { workspace = true }
 futures    = { workspace = true }

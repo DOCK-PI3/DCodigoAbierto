@@ -217,6 +217,8 @@ impl App {
                 if let AppMessage::ConfigReload(new_cfg) = msg {
                     state.chat.selected_model = new_cfg.ai.model.clone();
                     self.config = new_cfg;
+                } else if let AppMessage::AiSessionUpdate(msgs) = msg {
+                    chat_session.messages = msgs;
                 } else if let Some(cmd) = update(&mut state, msg) {
                     self.execute_command(cmd, &lsp_client, &state, &tx, &mut chat_session).await;
                 }
@@ -229,6 +231,8 @@ impl App {
                     if let AppMessage::ConfigReload(new_cfg) = msg {
                         state.chat.selected_model = new_cfg.ai.model.clone();
                         self.config = new_cfg;
+                    } else if let AppMessage::AiSessionUpdate(msgs) = msg {
+                        chat_session.messages = msgs;
                     } else if let Some(cmd) = update(&mut state, msg) {
                         self.execute_command(cmd, &lsp_client, &state, &tx, &mut chat_session).await;
                     }
@@ -351,12 +355,16 @@ impl App {
                             AiEvent::Chunk(c) => { let _ = tx_events.send(AppMessage::AiStreamChunk(c)); }
                             AiEvent::Done => { let _ = tx_events.send(AppMessage::AiStreamDone); break; }
                             AiEvent::Error(e) => { let _ = tx_events.send(AppMessage::AiStreamError(e)); break; }
+                            AiEvent::ToolResult { name, result } => {
+                                let _ = tx_events.send(AppMessage::AiToolResult { name, result });
+                            }
                             AiEvent::ToolCallRequest(_) => {}
                         }
                     }
                 });
 
-                // Agente IA
+                // Agente IA — al terminar, envía la sesión de vuelta por canal
+                let (sess_tx, sess_rx) = tokio::sync::oneshot::channel::<Vec<dca_ai::provider::AiMessage>>();
                 tokio::spawn(async move {
                     let _ = agent.chat_stream(
                         &mut session_clone,
@@ -365,6 +373,15 @@ impl App {
                         &mut agent_appr_rx,
                         token,
                     ).await;
+                    let _ = sess_tx.send(session_clone.messages);
+                });
+
+                // Tarea que espera la sesión y la reinyecta como mensaje al loop
+                let tx_sess = tx.clone();
+                tokio::spawn(async move {
+                    if let Ok(msgs) = sess_rx.await {
+                        let _ = tx_sess.send(AppMessage::AiSessionUpdate(msgs));
+                    }
                 });
             }
 
@@ -372,6 +389,13 @@ impl App {
                 let guard = self.agent_approval_tx.lock().await;
                 if let Some(tx_a) = guard.as_ref() {
                     let _ = tx_a.send(ApprovalDecision::Approved(id));
+                }
+            }
+
+            Command::AiDenyTool { id } => {
+                let guard = self.agent_approval_tx.lock().await;
+                if let Some(tx_a) = guard.as_ref() {
+                    let _ = tx_a.send(ApprovalDecision::Denied(id));
                 }
             }
 

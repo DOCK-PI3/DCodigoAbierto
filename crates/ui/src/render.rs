@@ -52,6 +52,7 @@ pub fn render(frame: &mut Frame, view: &ViewState<'_>, theme: &Theme) {
                 chat_mode_is_build: view.chat_mode_is_build,
                 version: env!("CARGO_PKG_VERSION"),
                 messages: view.chat_messages,
+                scroll: view.chat_scroll,
             },
             home_split[0],
         );

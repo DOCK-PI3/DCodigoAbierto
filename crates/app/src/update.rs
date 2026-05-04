@@ -17,7 +17,13 @@ pub fn update(state: &mut AppState, msg: AppMessage) -> Option<Command> {
             None
         }
         AppMessage::Resize(_, _) => None,
-        AppMessage::Tick => None,
+        AppMessage::Tick => {
+            if state.chat.streaming {
+                state.chat.streaming_elapsed_secs =
+                    state.chat.streaming_elapsed_secs.saturating_add(1);
+            }
+            None
+        }
         AppMessage::Quit => {
             state.quit = true;
             None
@@ -49,8 +55,8 @@ pub fn update(state: &mut AppState, msg: AppMessage) -> Option<Command> {
                 content: chunk,
                 is_streaming: true,
             });
-            // Auto-scroll al fondo
-            state.chat.scroll = state.chat.messages.len().saturating_sub(1);
+            // Auto-scroll al fondo (0 = mostrar fondo en la nueva semántica)
+            state.chat.scroll = 0;
             None
         }
         AppMessage::AiStreamDone => {
@@ -103,10 +109,21 @@ pub fn update(state: &mut AppState, msg: AppMessage) -> Option<Command> {
             });
             None
         }
+        AppMessage::AiToolResult { name, result } => {
+            state.chat.messages.push(ChatMessage {
+                role: "tool".into(),
+                content: format!("✓ {name}\n{result}"),
+                is_streaming: false,
+            });
+            state.chat.scroll = 0; // auto-scroll al fondo
+            None
+        }
         AppMessage::AiModelsLoaded(models) => {
             state.model_selector_models = models;
             None
         }
+        // Sesión sincronizada tras cada respuesta del agente (manejada en app.rs)
+        AppMessage::AiSessionUpdate(_) => None,
     }
 }
 
@@ -354,9 +371,17 @@ fn handle_chat_key(state: &mut AppState, code: KeyCode) -> Option<Command> {
                 content: text,
                 is_streaming: false,
             });
+            // Placeholder del asistente visible inmediatamente (cursor parpadeante)
+            state.chat.messages.push(ChatMessage {
+                role: "assistant".into(),
+                content: String::new(),
+                is_streaming: true,
+            });
+            state.chat.streaming = true;
+            state.chat.streaming_elapsed_secs = 0;
             state.chat.input.clear();
             state.chat.input_cursor = 0;
-            state.chat.scroll = state.chat.messages.len().saturating_sub(1);
+            state.chat.scroll = 0; // auto-scroll al fondo
             Some(Command::AiSendMessage)
         }
         KeyCode::Backspace => {
@@ -384,15 +409,13 @@ fn handle_chat_key(state: &mut AppState, code: KeyCode) -> Option<Command> {
             None
         }
         KeyCode::Up => {
-            // Scroll hacia arriba en el historial
-            state.chat.scroll = state.chat.scroll.saturating_sub(1);
+            // Scroll hacia arriba: aumenta las líneas subidas desde el fondo
+            state.chat.scroll = state.chat.scroll.saturating_add(3);
             None
         }
         KeyCode::Down => {
-            let max = state.chat.messages.len().saturating_sub(1);
-            if state.chat.scroll < max {
-                state.chat.scroll += 1;
-            }
+            // Scroll hacia abajo: reduce las líneas subidas desde el fondo
+            state.chat.scroll = state.chat.scroll.saturating_sub(3);
             None
         }
         KeyCode::Char(ch) => {
@@ -422,6 +445,7 @@ fn handle_permission_key(state: &mut AppState, code: KeyCode) -> Option<Command>
                     content: format!("✗ {} denegado.", p.name),
                     is_streaming: false,
                 });
+                return Some(Command::AiDenyTool { id: p.id });
             }
         }
         _ => {}

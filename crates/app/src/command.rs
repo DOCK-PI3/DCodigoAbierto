@@ -23,6 +23,8 @@ pub enum Command {
     AiSendMessage,
     /// Ejecutar una herramienta ya aprobada por el usuario
     AiExecuteTool { id: String },
+    /// Denegar una herramienta solicitada por el modelo
+    AiDenyTool { id: String },
     /// Cancelar el stream de respuesta en curso
     AiAbortStream,
     /// Solicitar la lista de modelos al proveedor

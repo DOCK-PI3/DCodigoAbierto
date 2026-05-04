@@ -1,6 +1,7 @@
 use crossterm::event::KeyEvent;
 use dca_config::AppConfig;
 use dca_types::{view_state::FileEntry, LspEvent};
+use dca_ai::provider::AiMessage;
 use tokio::sync::mpsc;
 
 /// Todos los mensajes que puede recibir el loop principal de la aplicación.
@@ -38,8 +39,15 @@ pub enum AppMessage {
     AiToolApproved(String),
     /// El usuario denegó la ejecución de la herramienta `id`
     AiToolDenied(String),
+    /// Una herramienta se ejecutó; muestra nombre y resultado (truncado)
+    AiToolResult {
+        name: String,
+        result: String,
+    },
     /// Lista de modelos disponibles obtenida del proveedor
     AiModelsLoaded(Vec<String>),
+    /// El agente terminó; sincroniza el historial al main loop
+    AiSessionUpdate(Vec<AiMessage>),
 }
 
 /// Alias del lado emisor del canal de mensajes.

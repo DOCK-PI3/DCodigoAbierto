@@ -86,6 +86,8 @@ pub enum AiEvent {
     Chunk(String),
     /// El modelo quiere invocar una herramienta
     ToolCallRequest(ToolCall),
+    /// Una herramienta se ejecutó; lleva su nombre y el resultado (truncado)
+    ToolResult { name: String, result: String },
     /// Respuesta completada
     Done,
     /// Error irrecuperable
