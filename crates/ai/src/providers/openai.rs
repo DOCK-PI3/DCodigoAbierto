@@ -16,11 +16,16 @@ pub struct OpenAiProvider {
 
 impl OpenAiProvider {
     pub fn new(base_url: &str, api_key: &str, default_model: &str) -> Self {
+        let client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(180))
+            .build()
+            .unwrap_or_default();
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key: api_key.to_string(),
             default_model: default_model.to_string(),
-            client: reqwest::Client::new(),
+            client,
         }
     }
 }
@@ -135,6 +140,8 @@ impl AiProvider for OpenAiProvider {
         messages: &[AiMessage],
         tools: &[ToolDef],
         max_tokens: u32,
+        temperature: f32,
+        top_p: f32,
         tx: UnboundedSender<AiEvent>,
     ) -> Result<()> {
         let url = format!("{}/v1/chat/completions", self.base_url);
@@ -144,6 +151,8 @@ impl AiProvider for OpenAiProvider {
             "messages": build_messages(messages),
             "stream": true,
             "max_tokens": max_tokens,
+            "temperature": temperature,
+            "top_p": top_p,
         });
 
         if !tools.is_empty() {

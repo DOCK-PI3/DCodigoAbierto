@@ -5,7 +5,7 @@ use ratatui::{
     text::{Line, Span, Text},
     widgets::{Block, Borders, List, ListItem, Paragraph, Widget, Wrap},
 };
-use dca_types::view_state::{ChatMessageView, Focus};
+use dca_types::view_state::ChatMessageView;
 
 use crate::highlight;
 

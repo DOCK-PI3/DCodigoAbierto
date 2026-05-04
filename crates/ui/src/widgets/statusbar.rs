@@ -1,20 +1,12 @@
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Paragraph, Widget},
 };
 
 use crate::palette::Palette;
-
-const BG_STATUS:  Color = Color::Rgb(30, 30, 46);
-const FG_STATUS:  Color = Color::Rgb(205, 214, 244);
-const ACCENT:     Color = Color::Rgb(137, 180, 250);
-const SUBTLE:     Color = Color::Rgb(108, 112, 134);
-const STREAMING:  Color = Color::Rgb(249, 226, 175);
-const BUILD_C:    Color = Color::Rgb(249, 226, 175);
-const PLAN_C:     Color = Color::Rgb(137, 180, 250);
 
 /// Barra de estado inferior de 1 fila.
 pub struct StatusbarWidget<'a> {
@@ -32,60 +24,66 @@ pub struct StatusbarWidget<'a> {
 
 impl<'a> Widget for StatusbarWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        let bg   = self.palette.bg_secondary;
+        let fg   = self.palette.fg;
+        let acc  = self.palette.accent;
+        let dim  = self.palette.fg_dim;
+        let warn = self.palette.warn;
+
         // Fondo sólido
         for x in area.left()..area.right() {
-            buf[(x, area.y)].set_bg(BG_STATUS);
+            buf[(x, area.y)].set_bg(bg);
         }
 
         if self.streaming {
             // ── Modo streaming ────────────────────────────────────────────
             let left = Line::from(vec![
-                Span::styled("●●● ", Style::default().fg(STREAMING).add_modifier(Modifier::BOLD)),
-                Span::styled("generando… ", Style::default().fg(FG_STATUS)),
-                Span::styled("ctrl+x interrumpir", Style::default().fg(SUBTLE)),
+                Span::styled("●●● ", Style::default().fg(warn).add_modifier(Modifier::BOLD)),
+                Span::styled("generando… ", Style::default().fg(fg)),
+                Span::styled("ctrl+x interrumpir", Style::default().fg(dim)),
             ]);
             let tokens_k = format_tokens(self.tokens_generated);
             let right = Line::from(vec![
-                Span::styled(format!("{tokens_k}  "), Style::default().fg(STREAMING)),
-                Span::styled("ctrl+p", Style::default().fg(SUBTLE)),
+                Span::styled(format!("{tokens_k}  "), Style::default().fg(warn)),
+                Span::styled("ctrl+p", Style::default().fg(dim)),
             ]);
 
             Paragraph::new(left)
                 .alignment(Alignment::Left)
-                .style(Style::default().bg(BG_STATUS))
+                .style(Style::default().bg(bg))
                 .render(area, buf);
             Paragraph::new(right)
                 .alignment(Alignment::Right)
-                .style(Style::default().bg(BG_STATUS))
+                .style(Style::default().bg(bg))
                 .render(area, buf);
         } else if self.home_mode {
             // ── Home mode ─────────────────────────────────────────────────
-            let mode_color = if self.chat_mode_is_build { BUILD_C } else { PLAN_C };
+            let mode_color = if self.chat_mode_is_build { warn } else { acc };
 
             let left = Line::from(vec![
                 Span::styled(self.chat_mode_label, Style::default().fg(mode_color).add_modifier(Modifier::BOLD)),
-                Span::styled(" · ", Style::default().fg(SUBTLE)),
-                Span::styled(self.active_model, Style::default().fg(FG_STATUS)),
+                Span::styled(" · ", Style::default().fg(dim)),
+                Span::styled(self.active_model, Style::default().fg(fg)),
             ]);
             let right = Line::from(vec![
-                Span::styled("ctrl+p ", Style::default().fg(SUBTLE)),
-                Span::styled("comandos", Style::default().fg(ACCENT)),
+                Span::styled("ctrl+p ", Style::default().fg(dim)),
+                Span::styled("comandos", Style::default().fg(acc)),
             ]);
 
             Paragraph::new(left)
                 .alignment(Alignment::Left)
-                .style(Style::default().bg(BG_STATUS))
+                .style(Style::default().bg(bg))
                 .render(area, buf);
             Paragraph::new(right)
                 .alignment(Alignment::Right)
-                .style(Style::default().bg(BG_STATUS))
+                .style(Style::default().bg(bg))
                 .render(area, buf);
         } else {
             // ── Modo normal (archivo abierto) ─────────────────────────────
-            let line = Line::from(vec![Span::styled(self.message, Style::default().fg(FG_STATUS))]);
+            let line = Line::from(vec![Span::styled(self.message, Style::default().fg(fg))]);
             Paragraph::new(line)
                 .alignment(Alignment::Left)
-                .style(Style::default().bg(BG_STATUS))
+                .style(Style::default().bg(bg))
                 .render(area, buf);
         }
     }

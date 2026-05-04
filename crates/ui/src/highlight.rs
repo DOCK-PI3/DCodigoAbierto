@@ -14,6 +14,7 @@ const C_TYPE:   Color = Color::Rgb(137, 180, 250); // azul   — types / builtin
 const C_STRING: Color = Color::Rgb(166, 227, 161); // verde  — strings
 const C_NUMBER: Color = Color::Rgb(250, 179, 135); // naranja — números
 const C_COMMENT:Color = Color::Rgb(108, 112, 134); // gris   — comentarios
+#[allow(dead_code)]
 const C_FN:     Color = Color::Rgb(137, 220, 235); // cian   — funciones
 const C_PLAIN:  Color = Color::Rgb(205, 214, 244); // blanco — texto normal
 

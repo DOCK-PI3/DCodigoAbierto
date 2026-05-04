@@ -1,19 +1,12 @@
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph, Widget},
 };
 
-// ── Colores ────────────────────────────────────────────────────────────────────
-const BG:        Color = Color::Rgb(24, 24, 37);
-const BG_SEL:    Color = Color::Rgb(50, 50, 80);
-const FG:        Color = Color::Rgb(205, 214, 244);
-const SUBTLE:    Color = Color::Rgb(108, 112, 134);
-const ACCENT:    Color = Color::Rgb(137, 180, 250);
-const ORANGE:    Color = Color::Rgb(249, 226, 175);
-const FG_KEY:    Color = Color::Rgb(166, 227, 161);   // shortcuts en verde
+use crate::palette::Palette;
 
 // ── Tipos de items ────────────────────────────────────────────────────────────
 
@@ -32,6 +25,7 @@ pub enum PaletteItemKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaletteActionId {
     SwitchModel,
+    SelectTheme,
     ToggleMode,
     OpenEditor,
     NewSession,
@@ -58,11 +52,16 @@ pub struct CommandPaletteWidget<'a> {
     pub query: &'a str,
     pub query_cursor: usize,
     pub items: &'a [PaletteItem],
-    pub selected: usize,
-}
+    pub selected: usize,    pub palette: &'a Palette,}
 
 impl<'a> Widget for CommandPaletteWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        let bg     = self.palette.bg_secondary;
+        let fg     = self.palette.fg;
+        let dim    = self.palette.fg_dim;
+        let acc    = self.palette.accent;
+        let info   = self.palette.info;
+
         // Popup centrado: 60% ancho, 70% alto
         let popup = centered_rect(60, 70, area);
         Clear.render(popup, buf);
@@ -70,8 +69,8 @@ impl<'a> Widget for CommandPaletteWidget<'a> {
         let outer = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(SUBTLE))
-            .style(Style::default().bg(BG));
+            .border_style(Style::default().fg(dim))
+            .style(Style::default().bg(bg));
         let inner = outer.inner(popup);
         outer.render(popup, buf);
 
@@ -83,10 +82,10 @@ impl<'a> Widget for CommandPaletteWidget<'a> {
 
         // Header
         Paragraph::new(Line::from(vec![
-            Span::styled("Commands", Style::default().fg(FG).add_modifier(Modifier::BOLD)),
+            Span::styled("Commands", Style::default().fg(fg).add_modifier(Modifier::BOLD)),
         ])).render(header_area, buf);
         Paragraph::new(Line::from(vec![
-            Span::styled("esc", Style::default().fg(SUBTLE)),
+            Span::styled("esc", Style::default().fg(dim)),
         ])).render(
             Rect { x: inner.x + inner.width.saturating_sub(3), y: inner.y, width: 3, height: 1 },
             buf,
@@ -99,15 +98,15 @@ impl<'a> Widget for CommandPaletteWidget<'a> {
         let cur_ch    = rest.chars().next().map(|c| c.to_string()).unwrap_or_default();
         let after_str = rest.chars().skip(1).collect::<String>();
         let search_line = if self.query.is_empty() {
-            Line::from(Span::styled("Search...", Style::default().fg(SUBTLE)))
+            Line::from(Span::styled("Search...", Style::default().fg(dim)))
         } else {
             Line::from(vec![
-                Span::styled(before,    Style::default().fg(FG)),
+                Span::styled(before,    Style::default().fg(fg)),
                 Span::styled(
                     if cur_ch.is_empty() { " ".to_string() } else { cur_ch },
-                    Style::default().bg(ACCENT).fg(Color::Rgb(14,14,22)),
+                    Style::default().bg(acc).fg(bg),
                 ),
-                Span::styled(after_str, Style::default().fg(FG)),
+                Span::styled(after_str, Style::default().fg(fg)),
             ])
         };
         Paragraph::new(search_line).render(search_area, buf);
@@ -126,36 +125,36 @@ impl<'a> Widget for CommandPaletteWidget<'a> {
                 PaletteItemKind::Section { label } => {
                     Line::from(Span::styled(
                         *label,
-                        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                        Style::default().fg(acc).add_modifier(Modifier::BOLD),
                     ))
                 }
                 PaletteItemKind::File { path } => {
                     let display = short_path(path);
                     let style = if i == self.selected {
-                        Style::default().fg(FG).bg(BG_SEL)
+                        Style::default().fg(bg).bg(acc)
                     } else {
-                        Style::default().fg(FG)
+                        Style::default().fg(fg)
                     };
                     Line::from(Span::styled(format!("  {display}"), style))
                 }
                 PaletteItemKind::Model { name } => {
                     let style = if i == self.selected {
-                        Style::default().fg(FG).bg(BG_SEL)
+                        Style::default().fg(bg).bg(acc)
                     } else {
-                        Style::default().fg(FG)
+                        Style::default().fg(fg)
                     };
                     Line::from(Span::styled(format!("  {name}"), style))
                 }
                 PaletteItemKind::Action { shortcut, .. } => {
                     let label_style = if i == self.selected {
-                        Style::default().fg(FG).bg(BG_SEL)
+                        Style::default().fg(bg).bg(acc)
                     } else {
-                        Style::default().fg(FG)
+                        Style::default().fg(fg)
                     };
                     let short_style = if i == self.selected {
-                        Style::default().fg(FG_KEY).bg(BG_SEL)
+                        Style::default().fg(bg).bg(acc)
                     } else {
-                        Style::default().fg(FG_KEY)
+                        Style::default().fg(info)
                     };
                     // Alinear shortcut a la derecha del ancho del popup
                     let label_padded = format!("  {}", item.label);
@@ -164,7 +163,7 @@ impl<'a> Widget for CommandPaletteWidget<'a> {
                     Line::from(vec![
                         Span::styled(label_padded, label_style),
                         Span::styled(" ".repeat(pad), if i == self.selected {
-                            Style::default().bg(BG_SEL)
+                            Style::default().bg(acc)
                         } else {
                             Style::default()
                         }),
@@ -177,7 +176,7 @@ impl<'a> Widget for CommandPaletteWidget<'a> {
 
         let visible: Vec<ListItem> = items.into_iter().skip(scroll).take(visible_h).collect();
         List::new(visible)
-            .style(Style::default().bg(BG))
+            .style(Style::default().bg(bg))
             .render(list_area, buf);
     }
 }

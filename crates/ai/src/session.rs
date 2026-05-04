@@ -1,4 +1,4 @@
-use crate::provider::{AiMessage, AiRole, ToolCall, ToolResult};
+use crate::provider::{AiMessage, AiRole, ToolCall};
 
 /// Historial de mensajes de una sesión de chat (en memoria).
 #[derive(Debug, Default)]

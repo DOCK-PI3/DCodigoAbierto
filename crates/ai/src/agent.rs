@@ -1,7 +1,12 @@
 use color_eyre::Result;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
+
+const MAX_TOOL_ITERATIONS: u32 = 20;
+const STREAM_TIMEOUT_SECS: u64 = 180;
+const APPROVAL_TIMEOUT_SECS: u64 = 300;
 
 use crate::provider::{AiEvent, AiMessage, AiProvider, ToolCall, ToolDef};
 use crate::session::ChatSession;
@@ -13,6 +18,8 @@ pub struct AiAgent {
     tools: Vec<Box<dyn Tool>>,
     system_prompt: String,
     max_tokens: u32,
+    temperature: f32,
+    top_p: f32,
 }
 
 impl AiAgent {
@@ -21,12 +28,16 @@ impl AiAgent {
         tools: Vec<Box<dyn Tool>>,
         system_prompt: impl Into<String>,
         max_tokens: u32,
+        temperature: f32,
+        top_p: f32,
     ) -> Self {
         Self {
             provider,
             tools,
             system_prompt: system_prompt.into(),
             max_tokens,
+            temperature,
+            top_p,
         }
     }
 
@@ -69,6 +80,7 @@ impl AiAgent {
         // Construimos el listado de mensajes con el system prompt
         let mut context = build_context(&self.system_prompt, &session.messages);
         let defs = self.tool_defs();
+        let mut tool_iteration: u32 = 0;
 
         loop {
             if token.is_cancelled() {
@@ -76,21 +88,38 @@ impl AiAgent {
                 return Ok(());
             }
 
-            // Lanzar stream
-            let (inner_tx, mut inner_rx) = unbounded_channel::<AiEvent>();
-            let stream_fut = self.provider.chat_stream(&context, &defs, self.max_tokens, inner_tx);
+            // Guardia: evitar bucles infinitos de herramientas
+            if tool_iteration >= MAX_TOOL_ITERATIONS {
+                let _ = event_tx.send(AiEvent::Error(format!(
+                    "Límite de iteraciones de herramientas alcanzado ({MAX_TOOL_ITERATIONS}). Abortando."
+                )));
+                return Ok(());
+            }
 
-            tokio::select! {
+            // Lanzar stream con timeout
+            let (inner_tx, mut inner_rx) = unbounded_channel::<AiEvent>();
+            let stream_fut = self.provider.chat_stream(&context, &defs, self.max_tokens, self.temperature, self.top_p, inner_tx);
+
+            let stream_result = tokio::select! {
                 _ = token.cancelled() => {
                     let _ = event_tx.send(AiEvent::Done);
                     return Ok(());
                 }
-                res = stream_fut => {
-                    if let Err(e) = res {
-                        let _ = event_tx.send(AiEvent::Error(e.to_string()));
-                        return Ok(());
-                    }
+                res = timeout(std::time::Duration::from_secs(STREAM_TIMEOUT_SECS), stream_fut) => res,
+            };
+
+            match stream_result {
+                Err(_elapsed) => {
+                    let _ = event_tx.send(AiEvent::Error(format!(
+                        "Timeout: el modelo no respondió en {STREAM_TIMEOUT_SECS}s."
+                    )));
+                    return Ok(());
                 }
+                Ok(Err(e)) => {
+                    let _ = event_tx.send(AiEvent::Error(e.to_string()));
+                    return Ok(());
+                }
+                Ok(Ok(())) => {}
             }
 
             // Recopilar respuesta completa
@@ -132,6 +161,7 @@ impl AiAgent {
             }
 
             // Ejecutar herramientas
+            tool_iteration += 1;
             for tc in &tool_calls_this_turn {
                 if token.is_cancelled() { break; }
 
@@ -146,10 +176,19 @@ impl AiAgent {
                 // Pedir aprobación si es necesario
                 if tool.requires_approval() {
                     let _ = pending_approval_tx.send(tc.clone());
-                    // Esperar decisión
-                    match approval_rx.recv().await {
-                        Some(ApprovalDecision::Approved(id)) if id == tc.id => {}
-                        Some(ApprovalDecision::Denied(id)) if id == tc.id => {
+                    // Esperar decisión con timeout para evitar deadlock
+                    let decision = timeout(
+                        std::time::Duration::from_secs(APPROVAL_TIMEOUT_SECS),
+                        approval_rx.recv(),
+                    ).await;
+                    match decision {
+                        Err(_) => {
+                            let result = "Timeout esperando aprobación del usuario.";
+                            push_tool_result_to_context(&mut context, session, &tc.id, result);
+                            continue;
+                        }
+                        Ok(Some(ApprovalDecision::Approved(id))) if id == tc.id => {}
+                        Ok(Some(ApprovalDecision::Denied(id))) if id == tc.id => {
                             let result = "El usuario denegó la ejecución de esta herramienta.";
                             push_tool_result_to_context(&mut context, session, &tc.id, result);
                             continue;

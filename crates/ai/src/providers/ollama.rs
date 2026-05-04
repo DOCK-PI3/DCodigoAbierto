@@ -15,10 +15,15 @@ pub struct OllamaProvider {
 
 impl OllamaProvider {
     pub fn new(base_url: &str, default_model: &str) -> Self {
+        let client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(180))
+            .build()
+            .unwrap_or_default();
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             default_model: default_model.to_string(),
-            client: reqwest::Client::new(),
+            client,
         }
     }
 }
@@ -27,6 +32,7 @@ impl OllamaProvider {
 
 #[derive(Debug, Deserialize)]
 struct OllamaMessage {
+    #[allow(dead_code)]
     role: String,
     content: String,
     #[serde(default)]
@@ -112,6 +118,8 @@ impl AiProvider for OllamaProvider {
         messages: &[AiMessage],
         tools: &[ToolDef],
         max_tokens: u32,
+        temperature: f32,
+        top_p: f32,
         tx: UnboundedSender<AiEvent>,
     ) -> Result<()> {
         let url = format!("{}/api/chat", self.base_url);
@@ -120,7 +128,11 @@ impl AiProvider for OllamaProvider {
             "model": self.default_model,
             "messages": build_messages(messages),
             "stream": true,
-            "options": { "num_predict": max_tokens },
+            "options": {
+                "num_predict": max_tokens,
+                "temperature": temperature,
+                "top_p": top_p,
+            },
         });
 
         if !tools.is_empty() {

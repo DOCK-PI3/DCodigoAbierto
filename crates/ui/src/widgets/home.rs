@@ -1,15 +1,13 @@
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph, Widget},
 };
 use dca_types::view_state::ChatMessageView;
 
-use crate::highlight;
-
-// ── Logo ──────────────────────────────────────────────────────────────────────
+use crate::{highlight, palette::Palette};
 const LOGO: &[&str] = &[
     " ██████╗  ██████╗ █████╗ ",
     " ██╔══██╗██╔════╝██╔══██╗",
@@ -26,20 +24,6 @@ const TIPS: &[&str] = &[
     "Tab para alternar modo Build ↔ Plan",
 ];
 
-// ── Colores ───────────────────────────────────────────────────────────────────
-const BG:          Color = Color::Rgb(14, 14, 22);
-const BG_INPUT:    Color = Color::Rgb(24, 24, 37);
-const BG_INPUT_HL: Color = Color::Rgb(32, 32, 52);
-const BG_MSG:      Color = Color::Rgb(18, 18, 28);
-const FG:          Color = Color::Rgb(205, 214, 244);
-const ACCENT:      Color = Color::Rgb(137, 180, 250);
-const SUBTLE:      Color = Color::Rgb(108, 112, 134);
-const BUILD_COLOR: Color = Color::Rgb(249, 226, 175);
-const PLAN_COLOR:  Color = Color::Rgb(137, 180, 250);
-const TIP_COLOR:   Color = Color::Rgb(249, 226, 175);
-const USER_COLOR:  Color = Color::Rgb(166, 227, 161);
-const AI_COLOR:    Color = Color::Rgb(137, 180, 250);
-const TOOL_COLOR:  Color = Color::Rgb(249, 226, 175);
 
 // ── Widget ────────────────────────────────────────────────────────────────────
 
@@ -53,6 +37,7 @@ pub struct HomeWidget<'a> {
     pub chat_mode_label: &'a str,
     pub chat_mode_is_build: bool,
     pub version: &'a str,
+    pub palette: &'a Palette,
     /// Historial de mensajes de la sesión actual
     pub messages: &'a [ChatMessageView],
     /// Offset de scroll (líneas renderizadas)
@@ -61,10 +46,11 @@ pub struct HomeWidget<'a> {
 
 impl<'a> Widget for HomeWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        let bg = self.palette.bg;
         Clear.render(area, buf);
         for y in area.top()..area.bottom() {
             for x in area.left()..area.right() {
-                buf[(x, y)].set_bg(BG);
+                buf[(x, y)].set_bg(bg);
             }
         }
 
@@ -97,9 +83,10 @@ impl<'a> HomeWidget<'a> {
         let hint_area  = rows[2];
 
         // Fondo del área de mensajes
+        let bg = self.palette.bg;
         for y in msg_area.top()..msg_area.bottom() {
             for x in msg_area.left()..msg_area.right() {
-                buf[(x, y)].set_bg(BG_MSG);
+                buf[(x, y)].set_bg(bg);
             }
         }
 
@@ -113,7 +100,7 @@ impl<'a> HomeWidget<'a> {
         let skip = max_from_top.saturating_sub(clamped);
         let visible: Vec<ListItem> = items.into_iter().skip(skip).take(height).collect();
         List::new(visible)
-            .style(Style::default().bg(BG_MSG))
+            .style(Style::default().bg(bg))
             .render(msg_area, buf);
 
         // Input centrado
@@ -150,8 +137,10 @@ impl<'a> HomeWidget<'a> {
 
         // Logo
         let logo_area = Rect { x: area.x, y: logo_y, width: area.width, height: logo_h };
+        let accent = self.palette.accent;
+        let dim    = self.palette.fg_dim;
         let logo_lines: Vec<Line> = LOGO.iter().map(|l|
-            Line::from(Span::styled(*l, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
+            Line::from(Span::styled(*l, Style::default().fg(accent).add_modifier(Modifier::BOLD)))
         ).collect();
         Paragraph::new(logo_lines).alignment(Alignment::Center).render(logo_area, buf);
 
@@ -162,9 +151,9 @@ impl<'a> HomeWidget<'a> {
         // Hints
         let hints_area = Rect { x: input_x, y: hints_y, width: input_w, height: hints_h };
         Paragraph::new(Line::from(vec![
-            Span::styled("tab agentes", Style::default().fg(SUBTLE)),
+            Span::styled("tab agentes", Style::default().fg(dim)),
             Span::styled("   ", Style::default()),
-            Span::styled("ctrl+p comandos", Style::default().fg(SUBTLE)),
+            Span::styled("ctrl+p comandos", Style::default().fg(dim)),
         ]))
         .alignment(Alignment::Right)
         .render(hints_area, buf);
@@ -177,20 +166,21 @@ impl<'a> HomeWidget<'a> {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs() / 30)
                 .unwrap_or(0) as usize) % TIPS.len();
+            let warn = self.palette.warn;
             Paragraph::new(Line::from(vec![
-                Span::styled("● ", Style::default().fg(TIP_COLOR)),
-                Span::styled("Tip  ", Style::default().fg(TIP_COLOR).add_modifier(Modifier::BOLD)),
-                Span::styled(TIPS[tip_idx], Style::default().fg(SUBTLE)),
+                Span::styled("● ", Style::default().fg(warn)),
+                Span::styled("Tip  ", Style::default().fg(warn).add_modifier(Modifier::BOLD)),
+                Span::styled(TIPS[tip_idx], Style::default().fg(dim)),
             ]))
             .alignment(Alignment::Center)
             .render(tip_area, buf);
 
             let cwd_area = Rect { x: area.x, y: tip_y + tip_h, width: area.width, height: cwd_h };
             let cwd = cwd_str();
-            Paragraph::new(Span::styled(&cwd, Style::default().fg(SUBTLE)))
+            Paragraph::new(Span::styled(&cwd, Style::default().fg(dim)))
                 .alignment(Alignment::Left)
                 .render(cwd_area, buf);
-            Paragraph::new(Span::styled(self.version, Style::default().fg(SUBTLE)))
+            Paragraph::new(Span::styled(self.version, Style::default().fg(dim)))
                 .alignment(Alignment::Right)
                 .render(cwd_area, buf);
         }
@@ -199,11 +189,11 @@ impl<'a> HomeWidget<'a> {
     // ── Input box ─────────────────────────────────────────────────────────────
     fn render_input_box(&self, area: Rect, buf: &mut Buffer) {
         let border_style = if self.focused {
-            Style::default().fg(ACCENT)
+            Style::default().fg(self.palette.accent)
         } else {
-            Style::default().fg(SUBTLE)
+            Style::default().fg(self.palette.fg_dim)
         };
-        let input_bg = if self.focused { BG_INPUT_HL } else { BG_INPUT };
+        let input_bg = self.palette.bg_secondary;
 
         let block = Block::default()
             .borders(Borders::ALL)
@@ -228,7 +218,7 @@ impl<'a> HomeWidget<'a> {
         if self.streaming {
             Paragraph::new(Line::from(Span::styled(
                 "▋ Generando respuesta…",
-                Style::default().fg(ACCENT),
+                Style::default().fg(self.palette.accent),
             )))
             .render(text_area, buf);
         } else {
@@ -236,14 +226,14 @@ impl<'a> HomeWidget<'a> {
         }
 
         // Línea de modo
-        let mode_color = if self.chat_mode_is_build { BUILD_COLOR } else { PLAN_COLOR };
+        let mode_color = if self.chat_mode_is_build { self.palette.warn } else { self.palette.accent };
         let provider_cap = capitalize(if self.provider_name.is_empty() { "Local" } else { self.provider_name });
         Paragraph::new(Line::from(vec![
             Span::styled(self.chat_mode_label, Style::default().fg(mode_color).add_modifier(Modifier::BOLD)),
-            Span::styled(" · ", Style::default().fg(SUBTLE)),
-            Span::styled(self.active_model, Style::default().fg(FG)),
+            Span::styled(" · ", Style::default().fg(self.palette.fg_dim)),
+            Span::styled(self.active_model, Style::default().fg(self.palette.fg)),
             Span::styled("  ", Style::default()),
-            Span::styled(provider_cap, Style::default().fg(SUBTLE)),
+            Span::styled(provider_cap, Style::default().fg(self.palette.fg_dim)),
         ]))
         .render(mode_area, buf);
     }
@@ -254,7 +244,7 @@ impl<'a> HomeWidget<'a> {
         if self.chat_input.is_empty() {
             Paragraph::new(Span::styled(
                 "Escribe algo… p.ej: \"Explica este código\"",
-                Style::default().fg(SUBTLE),
+                Style::default().fg(self.palette.fg_dim),
             ))
             .render(area, buf);
             return;
@@ -287,35 +277,35 @@ impl<'a> HomeWidget<'a> {
 
         // "‹" si hay texto oculto a la izquierda
         let scroll_indicator = if window_start > 0 {
-            Span::styled("‹", Style::default().fg(SUBTLE))
+            Span::styled("‹", Style::default().fg(self.palette.fg_dim))
         } else {
             Span::raw("")
         };
 
         let line = Line::from(vec![
             scroll_indicator,
-            Span::styled(before_chars, Style::default().fg(FG)),
-            Span::styled(cur_ch, Style::default().bg(ACCENT).fg(BG).add_modifier(Modifier::BOLD)),
-            Span::styled(after_chars, Style::default().fg(FG)),
+            Span::styled(before_chars, Style::default().fg(self.palette.fg)),
+            Span::styled(cur_ch, Style::default().bg(self.palette.accent).fg(self.palette.bg).add_modifier(Modifier::BOLD)),
+            Span::styled(after_chars, Style::default().fg(self.palette.fg)),
         ]);
         Paragraph::new(line).render(area, buf);
     }
 
     fn render_hint_line(&self, area: Rect, buf: &mut Buffer) {
         for x in area.left()..area.right() {
-            buf[(x, area.y)].set_bg(BG);
+            buf[(x, area.y)].set_bg(self.palette.bg);
         }
-        let mode_color = if self.chat_mode_is_build { BUILD_COLOR } else { PLAN_COLOR };
+        let mode_color = if self.chat_mode_is_build { self.palette.warn } else { self.palette.accent };
         Paragraph::new(Line::from(vec![
             Span::styled(self.chat_mode_label, Style::default().fg(mode_color).add_modifier(Modifier::BOLD)),
-            Span::styled(" · ", Style::default().fg(SUBTLE)),
-            Span::styled(self.active_model, Style::default().fg(SUBTLE)),
+            Span::styled(" · ", Style::default().fg(self.palette.fg_dim)),
+            Span::styled(self.active_model, Style::default().fg(self.palette.fg_dim)),
         ]))
         .alignment(Alignment::Left)
         .render(area, buf);
         Paragraph::new(Line::from(vec![
-            Span::styled("ctrl+p ", Style::default().fg(SUBTLE)),
-            Span::styled("comandos", Style::default().fg(ACCENT)),
+            Span::styled("ctrl+p ", Style::default().fg(self.palette.fg_dim)),
+            Span::styled("comandos", Style::default().fg(self.palette.accent)),
         ]))
         .alignment(Alignment::Right)
         .render(area, buf);
@@ -325,12 +315,18 @@ impl<'a> HomeWidget<'a> {
         let wrap_w = (width as usize).saturating_sub(8);
         let mut items: Vec<ListItem<'static>> = vec![];
 
+        let user_color = self.palette.info;
+        let ai_color   = self.palette.accent;
+        let tool_color = self.palette.warn;
+        let dim        = self.palette.fg_dim;
+        let fg         = self.palette.fg;
+
         for msg in self.messages {
             let (prefix, color) = match msg.role.as_str() {
-                "user"      => ("▶ Tú",   USER_COLOR),
-                "assistant" => ("◀ IA",   AI_COLOR),
-                "tool"      => ("⚙ Tool", TOOL_COLOR),
-                _           => ("  ?",    SUBTLE),
+                "user"      => ("▶ Tú",   user_color),
+                "assistant" => ("◀ IA",   ai_color),
+                "tool"      => ("⚙ Tool", tool_color),
+                _           => ("  ?",    dim),
             };
 
             items.push(ListItem::new(Line::from(vec![
@@ -353,7 +349,7 @@ impl<'a> HomeWidget<'a> {
                 for line in word_wrap(&content, wrap_w) {
                     items.push(ListItem::new(Line::from(vec![
                         Span::raw("    "),
-                        Span::styled(line, Style::default().fg(FG)),
+                        Span::styled(line, Style::default().fg(fg)),
                     ])));
                 }
             }

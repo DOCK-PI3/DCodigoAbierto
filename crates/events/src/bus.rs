@@ -48,6 +48,10 @@ pub enum AppMessage {
     AiModelsLoaded(Vec<String>),
     /// El agente terminó; sincroniza el historial al main loop
     AiSessionUpdate(Vec<AiMessage>),
+
+    // ── Themes ────────────────────────────────────────────────────────────
+    /// El usuario seleccionó un tema por nombre
+    ThemeSelected(String),
 }
 
 /// Alias del lado emisor del canal de mensajes.

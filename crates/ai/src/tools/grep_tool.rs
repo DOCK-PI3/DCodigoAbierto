@@ -51,8 +51,6 @@ fn grep_files(
     case_sensitive: bool,
     include: Option<&str>,
 ) -> Result<Vec<String>> {
-    use std::io::BufRead;
-
     let re = if case_sensitive {
         regex_simple::compile(pattern)
     } else {

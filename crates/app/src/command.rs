@@ -31,4 +31,8 @@ pub enum Command {
     AiLoadModels,
     /// Inyectar el contenido del buffer activo como contexto en el chat
     AiInjectBuffer,
+
+    // ── Themes ────────────────────────────────────────────────────────────
+    /// Cambiar el tema activo por nombre y persistir en config.toml
+    ChangeTheme(String),
 }

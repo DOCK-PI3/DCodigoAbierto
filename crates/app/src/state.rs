@@ -151,6 +151,12 @@ pub struct AppState {
     pub model_selector_models: Vec<String>,
     pub model_selector_selected: usize,
 
+    // ── Theme Selector ────────────────────────────────────────────────────
+    pub theme_selector_active: bool,
+    pub theme_selector_selected: usize,
+    /// Temas disponibles cargados al inicio
+    pub available_themes: Vec<dca_config::Theme>,
+
     // ── Command Palette ───────────────────────────────────────────────────
     pub palette_active: bool,
     pub palette_query: String,
@@ -245,6 +251,9 @@ impl Default for AppState {
             model_selector_active: false,
             model_selector_models: vec![],
             model_selector_selected: 0,
+            theme_selector_active: false,
+            theme_selector_selected: 0,
+            available_themes: dca_config::builtin_themes(),
             palette_active: false,
             palette_query: String::new(),
             palette_query_cursor: 0,

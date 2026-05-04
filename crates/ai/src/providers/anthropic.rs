@@ -15,10 +15,15 @@ pub struct AnthropicProvider {
 
 impl AnthropicProvider {
     pub fn new(base_url: &str, api_key: &str) -> Self {
+        let client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(180))
+            .build()
+            .unwrap_or_default();
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key: api_key.to_string(),
-            client: reqwest::Client::new(),
+            client,
         }
     }
 }
@@ -40,6 +45,7 @@ enum AnthropicEvent {
         index: usize,
     },
     MessageDelta {
+        #[allow(dead_code)]
         delta: MessageDelta,
     },
     MessageStop,
@@ -50,7 +56,7 @@ enum AnthropicEvent {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ContentBlock {
-    Text { text: String },
+    Text { #[allow(dead_code)] text: String },
     ToolUse { id: String, name: String },
 }
 
@@ -64,6 +70,7 @@ enum ContentDelta {
 #[derive(Debug, Deserialize)]
 struct MessageDelta {
     #[serde(default)]
+    #[allow(dead_code)]
     stop_reason: Option<String>,
 }
 
@@ -149,6 +156,8 @@ impl AiProvider for AnthropicProvider {
         messages: &[AiMessage],
         tools: &[ToolDef],
         max_tokens: u32,
+        temperature: f32,
+        _top_p: f32,
         tx: UnboundedSender<AiEvent>,
     ) -> Result<()> {
         let url = format!("{}/v1/messages", self.base_url);
@@ -159,6 +168,7 @@ impl AiProvider for AnthropicProvider {
             "messages": msgs,
             "max_tokens": max_tokens,
             "stream": true,
+            "temperature": temperature,
         });
         if let Some(s) = system {
             body["system"] = serde_json::Value::String(s);

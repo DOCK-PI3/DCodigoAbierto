@@ -5,7 +5,7 @@ use dca_types::LspEvent;
 use crate::command::Command;
 use crate::fuzzy::fuzzy_filter;
 use crate::message::AppMessage;
-use crate::state::{AppState, ChatMessage, ChatMode, LspStatus, PendingTool};
+use crate::state::{AppState, ChatMessage, LspStatus, PendingTool};
 
 /// Función pura de actualización del estado.
 /// Retorna un `Command` opcional para side-effects externos (LSP, I/O, IA).
@@ -81,7 +81,7 @@ pub fn update(state: &mut AppState, msg: AppMessage) -> Option<Command> {
             None
         }
         AppMessage::AiToolRequest { id, name, args } => {
-            let args_display = serde_json::to_string_pretty(&args).unwrap_or_default();
+            let _args_display = serde_json::to_string_pretty(&args).unwrap_or_default();
             state.chat.tool_pending = Some(PendingTool { id, name: name.clone(), args });
             state.chat.messages.push(ChatMessage {
                 role: "tool".into(),
@@ -124,6 +124,12 @@ pub fn update(state: &mut AppState, msg: AppMessage) -> Option<Command> {
         }
         // Sesión sincronizada tras cada respuesta del agente (manejada en app.rs)
         AppMessage::AiSessionUpdate(_) => None,
+
+        // ── Themes ───────────────────────────────────────────────────────
+        AppMessage::ThemeSelected(name) => {
+            state.theme_selector_active = false;
+            Some(Command::ChangeTheme(name))
+        }
     }
 }
 
@@ -136,6 +142,11 @@ fn handle_key(state: &mut AppState, code: KeyCode, mods: KeyModifiers) -> Option
     // Diálogo de permiso de herramienta (prioridad máxima)
     if state.chat.tool_pending.is_some() {
         return handle_permission_key(state, code);
+    }
+
+    // Selector de tema activo
+    if state.theme_selector_active {
+        return handle_theme_selector_key(state, code);
     }
 
     // Command Palette activa
@@ -237,6 +248,11 @@ fn handle_key(state: &mut AppState, code: KeyCode, mods: KeyModifiers) -> Option
                 if state.chat.streaming {
                     return Some(Command::AiAbortStream);
                 }
+                return None;
+            }
+            KeyCode::Char('t') => {
+                state.theme_selector_active = true;
+                state.theme_selector_selected = 0;
                 return None;
             }
             _ => {}
@@ -476,6 +492,34 @@ fn handle_model_selector_key(state: &mut AppState, code: KeyCode) -> Option<Comm
                 state.chat.selected_model = model;
                 state.model_selector_active = false;
                 update_status(state);
+            }
+        }
+        _ => {}
+    }
+    None
+}
+
+fn handle_theme_selector_key(state: &mut AppState, code: KeyCode) -> Option<Command> {
+    match code {
+        KeyCode::Esc => {
+            state.theme_selector_active = false;
+        }
+        KeyCode::Up => {
+            if state.theme_selector_selected > 0 {
+                state.theme_selector_selected -= 1;
+            }
+        }
+        KeyCode::Down => {
+            let max = state.available_themes.len().saturating_sub(1);
+            if state.theme_selector_selected < max {
+                state.theme_selector_selected += 1;
+            }
+        }
+        KeyCode::Enter => {
+            if let Some(theme) = state.available_themes.get(state.theme_selector_selected).cloned() {
+                let name = theme.name.clone();
+                state.theme_selector_active = false;
+                return Some(Command::ChangeTheme(name));
             }
         }
         _ => {}
@@ -726,7 +770,7 @@ fn lsp_indicator(status: &LspStatus) -> &'static str {
 
 // ── Command Palette ───────────────────────────────────────────────────────────
 
-fn handle_palette_key(state: &mut AppState, code: KeyCode, mods: KeyModifiers) -> Option<Command> {
+fn handle_palette_key(state: &mut AppState, code: KeyCode, _mods: KeyModifiers) -> Option<Command> {
     match code {
         KeyCode::Esc => {
             state.palette_active = false;
@@ -769,7 +813,7 @@ fn handle_palette_key(state: &mut AppState, code: KeyCode, mods: KeyModifiers) -
 
 fn palette_item_count(_state: &AppState) -> usize {
     // Acciones fijas de la palette (excluyendo separadores)
-    7
+    8
 }
 
 fn palette_execute(state: &mut AppState) -> Option<Command> {
@@ -793,18 +837,23 @@ fn palette_execute(state: &mut AppState) -> Option<Command> {
                 Some(Command::AiLoadModels)
             } else { None }
         }
-        2 => {                                      // Alternar modo Build/Plan
+        2 => {                                      // Seleccionar tema
+            state.theme_selector_active = true;
+            state.theme_selector_selected = 0;
+            None
+        }
+        3 => {                                      // Alternar modo Build/Plan
             state.chat.mode = state.chat.mode.toggle();
             update_status(state);
             None
         }
-        3 => {                                      // Toggle chat
+        4 => {                                      // Toggle chat
             state.chat_visible = !state.chat_visible;
             if state.chat_visible { state.focus = Focus::Chat; } else { state.focus = Focus::Editor; }
             update_status(state);
             None
         }
-        4 => {                                      // Nueva sesión (reset chat)
+        5 => {                                      // Nueva sesión (reset chat)
             state.chat.messages.clear();
             state.chat.tokens_generated = 0;
             state.chat.session_name = {
@@ -815,10 +864,10 @@ fn palette_execute(state: &mut AppState) -> Option<Command> {
             update_status(state);
             None
         }
-        5 => {                                      // Inyectar buffer
+        6 => {                                      // Inyectar buffer
             if state.chat_visible { Some(Command::AiInjectBuffer) } else { None }
         }
-        6 => {                                      // Salir
+        7 => {                                      // Salir
             state.quit = true;
             None
         }

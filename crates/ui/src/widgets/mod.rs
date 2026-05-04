@@ -11,3 +11,4 @@ pub mod references;
 pub mod sidebar;
 pub mod statusbar;
 pub mod tabbar;
+pub mod theme_selector;

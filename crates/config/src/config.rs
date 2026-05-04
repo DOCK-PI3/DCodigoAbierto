@@ -19,11 +19,20 @@ pub struct AiConfig {
     pub system_prompt: String,
     /// Tokens máximos de respuesta
     pub max_tokens: u32,
+    /// Temperatura del modelo (creatividad). Rango: 0.0 - 2.0
+    #[serde(default = "default_temperature")]
+    pub temperature: f32,
+    /// Top-p (nucleus sampling). Rango: 0.0 - 1.0
+    #[serde(default = "default_top_p")]
+    pub top_p: f32,
     /// Habilitar herramientas (function calling)
     pub tools_enabled: bool,
     /// Habilitar la herramienta web_fetch
     pub web_enabled: bool,
 }
+
+fn default_temperature() -> f32 { 0.7 }
+fn default_top_p() -> f32 { 0.95 }
 
 impl Default for AiConfig {
     fn default() -> Self {
@@ -73,6 +82,8 @@ impl Default for AiConfig {
                  - Si necesitas más contexto, pídelo explícitamente.",
             ),
             max_tokens: 4096,
+            temperature: 0.7,
+            top_p: 0.95,
             tools_enabled: true,
             web_enabled: true,
         }
@@ -160,5 +171,14 @@ impl AppConfig {
             .unwrap_or_else(|| std::path::PathBuf::from("."))
             .join("dca")
             .join("config.toml")
+    }
+
+    /// Persiste únicamente el tema activo en config.toml.
+    /// Si no puede leer/escribir, falla silenciosamente.
+    pub fn save_theme(&self) -> Result<()> {
+        let path = Self::config_path();
+        let content = toml::to_string_pretty(self)?;
+        std::fs::write(&path, content)?;
+        Ok(())
     }
 }

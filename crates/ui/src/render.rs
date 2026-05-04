@@ -20,6 +20,7 @@ use crate::{
         sidebar::SidebarWidget,
         statusbar::StatusbarWidget,
         tabbar::TabBarWidget,
+        theme_selector::ThemeSelectorWidget,
     },
 };
 
@@ -51,6 +52,7 @@ pub fn render(frame: &mut Frame, view: &ViewState<'_>, theme: &Theme) {
                 chat_mode_label: view.chat_mode_label,
                 chat_mode_is_build: view.chat_mode_is_build,
                 version: env!("CARGO_PKG_VERSION"),
+                palette: &palette,
                 messages: view.chat_messages,
                 scroll: view.chat_scroll,
             },
@@ -106,6 +108,20 @@ pub fn render(frame: &mut Frame, view: &ViewState<'_>, theme: &Theme) {
             );
         }
 
+        if view.theme_selector_active && !view.available_theme_names.is_empty() {
+            let themes: Vec<(String, String, String)> = view.available_theme_names.iter()
+                .zip(view.available_theme_accents.iter())
+                .map(|(n, (a, b))| (n.clone(), a.clone(), b.clone()))
+                .collect();
+            frame.render_widget(
+                ThemeSelectorWidget {
+                    themes: &themes,
+                    selected: view.theme_selector_selected,
+                },
+                frame.area(),
+            );
+        }
+
         // Palette en home mode también
         if view.palette_active {
             let items = build_palette_items(view);
@@ -115,6 +131,7 @@ pub fn render(frame: &mut Frame, view: &ViewState<'_>, theme: &Theme) {
                     query_cursor: view.palette_query_cursor,
                     items: &items,
                     selected: view.palette_selected,
+                    palette: &palette,
                 },
                 frame.area(),
             );
@@ -208,6 +225,7 @@ pub fn render(frame: &mut Frame, view: &ViewState<'_>, theme: &Theme) {
                     lsp_ok,
                     cwd: &cwd,
                     version: env!("CARGO_PKG_VERSION"),
+                    palette: &palette,
                 },
                 meta,
             );
@@ -308,6 +326,21 @@ pub fn render(frame: &mut Frame, view: &ViewState<'_>, theme: &Theme) {
         );
     }
 
+    // Selector de tema
+    if view.theme_selector_active && !view.available_theme_names.is_empty() {
+        let themes: Vec<(String, String, String)> = view.available_theme_names.iter()
+            .zip(view.available_theme_accents.iter())
+            .map(|(n, (a, b))| (n.clone(), a.clone(), b.clone()))
+            .collect();
+        frame.render_widget(
+            ThemeSelectorWidget {
+                themes: &themes,
+                selected: view.theme_selector_selected,
+            },
+            frame.area(),
+        );
+    }
+
     // Command Palette (capa superior sobre todo)
     if view.palette_active {
         let items = build_palette_items(view);
@@ -317,6 +350,7 @@ pub fn render(frame: &mut Frame, view: &ViewState<'_>, theme: &Theme) {
                 query_cursor: view.palette_query_cursor,
                 items: &items,
                 selected: view.palette_selected,
+                palette: &palette,
             },
             frame.area(),
         );
@@ -350,6 +384,10 @@ fn build_palette_items<'a>(view: &ViewState<'a>) -> Vec<PaletteItem> {
         PaletteItem {
             kind: PaletteItemKind::Action { id: PaletteActionId::SwitchModel, shortcut: "ctrl+o" },
             label: "Cambiar modelo de IA…".to_string(),
+        },
+        PaletteItem {
+            kind: PaletteItemKind::Action { id: PaletteActionId::SelectTheme, shortcut: "" },
+            label: "Seleccionar tema…".to_string(),
         },
         PaletteItem {
             kind: PaletteItemKind::Action { id: PaletteActionId::ToggleMode, shortcut: "tab" },

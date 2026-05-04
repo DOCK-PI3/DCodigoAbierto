@@ -111,6 +111,8 @@ pub trait AiProvider: Send + Sync {
         messages: &[AiMessage],
         tools: &[ToolDef],
         max_tokens: u32,
+        temperature: f32,
+        top_p: f32,
         tx: UnboundedSender<AiEvent>,
     ) -> Result<()>;
 }

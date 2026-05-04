@@ -137,6 +137,10 @@ impl App {
 
         let mut tab_buf: Vec<dca_types::view_state::BufferTab> = Vec::with_capacity(8);
         let mut chat_msg_view_buf: Vec<ChatMessageView> = Vec::with_capacity(64);
+        let mut theme_names: Vec<String> = state.available_themes.iter().map(|t| t.name.clone()).collect();
+        let mut theme_accents: Vec<(String, String)> = state.available_themes.iter()
+            .map(|t| (t.accent.clone(), t.bg.clone()))
+            .collect();
 
         loop {
             let term_height = terminal.size().map(|s| s.height as usize).unwrap_or(24);
@@ -147,6 +151,11 @@ impl App {
                 name: b.file_name.as_deref().unwrap_or("*nuevo*").to_string(),
                 dirty: b.dirty,
             }));
+
+            theme_names.clear();
+            theme_names.extend(state.available_themes.iter().map(|t| t.name.clone()));
+            theme_accents.clear();
+            theme_accents.extend(state.available_themes.iter().map(|t| (t.accent.clone(), t.bg.clone())));
 
             chat_msg_view_buf.clear();
             chat_msg_view_buf.extend(state.chat.messages.iter().map(|m| ChatMessageView {
@@ -198,6 +207,10 @@ impl App {
                     model_selector_selected: state.model_selector_selected,
                     active_model: &state.chat.selected_model,
                     provider_name: &self.config.ai.provider,
+                    theme_selector_active: state.theme_selector_active,
+                    theme_selector_selected: state.theme_selector_selected,
+                    available_theme_names: &theme_names,
+                    available_theme_accents: &theme_accents,
                     chat_mode_label: state.chat.mode.label(),
                     chat_mode_is_build: state.chat.mode == ChatMode::Build,
                     session_name: &state.chat.session_name,
@@ -222,6 +235,7 @@ impl App {
                 } else if let Some(cmd) = update(&mut state, msg) {
                     self.execute_command(cmd, &lsp_client, &state, &tx, &mut chat_session).await;
                 }
+                // ChangeTheme es ejecutado directamente en execute_command arriba
             }
 
             // Esperar siguiente mensaje
@@ -315,6 +329,8 @@ impl App {
                     tools,
                     &self.config.ai.system_prompt,
                     self.config.ai.max_tokens,
+                    self.config.ai.temperature,
+                    self.config.ai.top_p,
                 );
 
                 let token = CancellationToken::new();
@@ -421,6 +437,13 @@ impl App {
                 let buf_content = state.buffer().lines.join("\n");
                 let fname = state.buffer().file_name.as_deref().unwrap_or("buffer").to_string();
                 session.push_user(format!("[Contexto: {fname}]\n```\n{buf_content}\n```"));
+            }
+
+            Command::ChangeTheme(name) => {
+                if let Some(t) = state.available_themes.iter().find(|t| t.name == name).cloned() {
+                    self.config.theme = t;
+                    let _ = self.config.save_theme();
+                }
             }
         }
     }

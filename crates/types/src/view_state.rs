@@ -62,6 +62,12 @@ pub struct ViewState<'a> {
     pub model_selector_selected: usize,
     pub active_model: &'a str,
     pub provider_name: &'a str,
+    // Theme selector
+    pub theme_selector_active: bool,
+    pub theme_selector_selected: usize,
+    pub available_theme_names: &'a [String],
+    /// Paralelo a available_theme_names: (accent_hex, bg_hex) para preview
+    pub available_theme_accents: &'a [(String, String)],
     // Modo y metadatos de sesión
     pub chat_mode_label: &'a str,   // "Build" | "Plan"
     pub chat_mode_is_build: bool,   // true=Build(naranja) false=Plan(azul)

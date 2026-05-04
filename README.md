@@ -9,7 +9,7 @@ cargo build --release
 ./target/release/dca
 ```
 
-> Binario resultante: **~6.1 MB** (incluye reqwest + rustls para llamadas a APIs de IA).
+> Binario resultante: **~6.5 MB** (incluye reqwest + rustls para llamadas a APIs de IA).
 
 ## Uso
 
@@ -44,6 +44,7 @@ dca --completions fish  > ~/.config/fish/completions/dca.fish
 | `Ctrl+B` | Mostrar/ocultar sidebar |
 | `Ctrl+A` | Mostrar/ocultar panel de chat IA |
 | `Ctrl+O` | Abrir selector de modelos |
+| `Ctrl+T` | Abrir selector de temas |
 | `Ctrl+I` | Inyectar buffer actual como contexto IA |
 | `Ctrl+X` | Abortar stream de respuesta IA |
 | `Tab` / `Shift+Tab` | Cambiar foco: editor → sidebar → chat → editor |
@@ -76,6 +77,7 @@ tick_rate_ms = 200
 lsp_server   = "rust-analyzer"   # vacío para desactivar LSP
 
 [theme]
+name         = "Solarized Dark"
 bg           = "#1e1e2e"
 bg_secondary = "#313244"
 fg           = "#cdd6f4"
@@ -100,6 +102,8 @@ system_prompt = "Eres un asistente experto en programación."
 max_tokens    = 4096
 tools_enabled = true    # habilitar herramientas (leer/escribir archivos, shell, grep…)
 web_enabled   = false   # habilitar herramienta web_fetch
+temperature   = 0.7     # creatividad del modelo (0.0 – 2.0)
+top_p         = 0.95    # nucleus sampling (0.0 – 1.0)
 ```
 
 #### Ejemplos por proveedor
@@ -212,6 +216,17 @@ AiAgent solicita tool
    → app.rs envía ApprovalDecision al agente
    → AiAgent ejecuta (o salta) la herramienta y continúa el loop
 ```
+
+### Fase 7 — Optimización agentica & Temas ✅
+- **Timeouts HTTP**: `connect_timeout` 10 s + `timeout` 180 s en todos los proveedores — el editor ya no se congela con modelos lentos o inaccesibles
+- **Límite de iteraciones**: `MAX_TOOL_ITERATIONS = 20` en el loop agentico — evita bucles infinitos de herramientas
+- **Timeout de aprobación**: 300 s para responder al diálogo de permiso — el agente se desbloquea solo si el usuario no responde
+- **`temperature` y `top_p`**: nuevos campos en `[ai]` del config (con defaults 0.7 / 0.95), propagados a los tres proveedores
+- **9 temas integrados** (`themes.txt` embebido en el binario vía `include_str!`):
+  `tokyo-night`, `forest-moss`, `deep-ocean`, `rose-pine`, `nord-frost`,
+  `espresso-night`, `cyber-dusk`, `serene-slate`, `midnight-plum`
+- **Selector de temas** (`Ctrl+T` o `Ctrl+P → Seleccionar tema`): popup con vista previa de color accent, persiste en `config.toml`
+- **Compatibilidad de config**: campos nuevos con `#[serde(default)]` — configs antiguos sin `temperature`/`top_p` siguen funcionando
 
 ---
 
