@@ -3,7 +3,7 @@ use color_eyre::Result;
 use futures::StreamExt;
 use serde::Deserialize;
 use tokio::sync::mpsc::UnboundedSender;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::provider::{AiEvent, AiMessage, AiProvider, AiRole, ToolCall, ToolDef};
 
@@ -150,7 +150,8 @@ impl AiProvider for OllamaProvider {
         }
 
         let mut stream = resp.bytes_stream();
-        let mut tool_call_buf: Vec<(String, String, serde_json::Value)> = vec![];
+        let mut accumulated_text = String::new();
+        let mut has_native_tool_calls = false;
 
         while let Some(chunk) = stream.next().await {
             let bytes = match chunk {
@@ -167,25 +168,28 @@ impl AiProvider for OllamaProvider {
 
                 match serde_json::from_str::<OllamaChatResponse>(line) {
                     Ok(resp) => {
-                        // Tool calls
+                        // Tool calls nativos (function calling del modelo)
                         for tc in &resp.message.tool_calls {
+                            has_native_tool_calls = true;
                             let id = format!("call_{}", uuid_simple());
-                            tool_call_buf.push((
-                                id.clone(),
-                                tc.function.name.clone(),
-                                tc.function.arguments.clone(),
-                            ));
                             let _ = tx.send(AiEvent::ToolCallRequest(ToolCall {
                                 id,
                                 name: tc.function.name.clone(),
                                 arguments: tc.function.arguments.clone(),
+                                buffer_version: None,
+                                target_buffer_id: None,
                             }));
                         }
                         // Texto
                         if !resp.message.content.is_empty() {
+                            accumulated_text.push_str(&resp.message.content);
                             let _ = tx.send(AiEvent::Chunk(resp.message.content));
                         }
                         if resp.done {
+                            // Fallback: si no hubo tool calls nativos, buscar JSON en el texto
+                            if !has_native_tool_calls && !tools.is_empty() {
+                                emit_text_tool_calls(&accumulated_text, &tx);
+                            }
                             let _ = tx.send(AiEvent::Done);
                             return Ok(());
                         }
@@ -197,8 +201,85 @@ impl AiProvider for OllamaProvider {
             }
         }
 
+        // Fallback si el stream terminó sin done flag
+        if !has_native_tool_calls && !tools.is_empty() {
+            emit_text_tool_calls(&accumulated_text, &tx);
+        }
+
         let _ = tx.send(AiEvent::Done);
         Ok(())
+    }
+}
+
+/// Busca tool calls en formato texto JSON dentro del contenido acumulado.
+/// Esto es un fallback para modelos que no usan function calling nativo
+/// y en su lugar escriben el JSON como texto (siguiendo el formato del system prompt).
+///
+/// Formato esperado: `{"tool":"nombre","arguments":{...}}`
+fn emit_text_tool_calls(accumulated_text: &str, tx: &UnboundedSender<AiEvent>) {
+    // Buscar patrones como {"tool":"read_file","arguments":{"path":"..."}}
+    let mut idx = 0usize;
+    while let Some(start) = accumulated_text[idx..].find("{\"tool\":\"") {
+        let abs_start = idx + start;
+        // Encontrar el cierre del JSON (balanceando llaves)
+        let slice = &accumulated_text[abs_start..];
+        let mut depth = 0u32;
+        let mut end = 0usize;
+        let mut in_string = false;
+        let mut escaped = false;
+        for (i, ch) in slice.char_indices() {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match ch {
+                '\\' => escaped = true,
+                '"' => in_string = !in_string,
+                '{' if !in_string => depth += 1,
+                '}' if !in_string => {
+                    if depth == 0 { break; }
+                    depth -= 1;
+                    if depth == 0 {
+                        end = i + 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if end == 0 {
+            // No se encontró cierre; avanzar
+            idx = abs_start + 1;
+            continue;
+        }
+
+        let json_str = &slice[..end];
+        match serde_json::from_str::<serde_json::Value>(json_str) {
+            Ok(obj) => {
+                let tool_name = obj.get("tool").and_then(|v| v.as_str()).unwrap_or("");
+                let arguments = obj.get("arguments").cloned().unwrap_or(serde_json::json!({}));
+                if !tool_name.is_empty() {
+                    let id = format!("call_{}", uuid_simple());
+                    warn!(
+                        "Ollama: modelo usó tool call en texto en vez de nativo. Tool={tool_name}. \
+                         Considera usar un modelo con mejor soporte de function calling."
+                    );
+                    let _ = tx.send(AiEvent::ToolCallRequest(ToolCall {
+                        id,
+                        name: tool_name.to_string(),
+                        arguments,
+                        buffer_version: None,
+                        target_buffer_id: None,
+                    }));
+                }
+            }
+            Err(e) => {
+                debug!("ollama text tool parse error: {e}");
+            }
+        }
+
+        idx = abs_start + end;
     }
 }
 

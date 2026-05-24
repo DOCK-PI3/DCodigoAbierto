@@ -129,6 +129,13 @@ impl<'a> HomeWidget<'a> {
 
         let content_h = logo_h + gap1 + input_h + gap2 + hints_h;
         let bottom_h  = tip_h + cwd_h;
+
+        // DCA-IA-IMPROVEMENT: evita render fuera del buffer cuando la terminal es pequena.
+        if area.height < content_h + bottom_h || area.width < 24 {
+            self.render_compact_splash(area, buf, input_x, input_w);
+            return;
+        }
+
         let top_space = area.height.saturating_sub(content_h).saturating_sub(bottom_h) / 2;
 
         let logo_y  = area.y + top_space;
@@ -184,6 +191,38 @@ impl<'a> HomeWidget<'a> {
                 .alignment(Alignment::Right)
                 .render(cwd_area, buf);
         }
+    }
+
+    fn render_compact_splash(&self, area: Rect, buf: &mut Buffer, input_x: u16, input_w: u16) {
+        if area.height == 0 {
+            return;
+        }
+
+        let input_h = 4u16.min(area.height);
+        let input_y = area.y + area.height.saturating_sub(input_h) / 2;
+        let input_area = Rect {
+            x: input_x.min(area.right().saturating_sub(1)),
+            y: input_y,
+            width: input_w.min(area.width),
+            height: input_h,
+        };
+
+        if area.height > input_h {
+            let title_area = Rect {
+                x: area.x,
+                y: area.y,
+                width: area.width,
+                height: 1,
+            };
+            Paragraph::new(Line::from(vec![
+                Span::styled("DCA", Style::default().fg(self.palette.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(" terminal pequena", Style::default().fg(self.palette.fg_dim)),
+            ]))
+            .alignment(Alignment::Center)
+            .render(title_area, buf);
+        }
+
+        self.render_input_box(input_area, buf);
     }
 
     // ── Input box ─────────────────────────────────────────────────────────────

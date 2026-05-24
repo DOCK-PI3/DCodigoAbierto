@@ -32,6 +32,16 @@ pub enum Command {
     /// Inyectar el contenido del buffer activo como contexto en el chat
     AiInjectBuffer,
 
+    // ── Buffer / Editor ────────────────────────────────────────────────────
+    /// Guardar el buffer activo a disco
+    SaveBuffer { path: String, content: String },
+
+    // ── Skills ────────────────────────────────────────────────────────────
+    /// Instalar skills desde un repositorio GitHub
+    InstallSkills { repo: String, skill: Option<String> },
+    /// Listar skills instaladas
+    ListSkills,
+
     // ── Themes ────────────────────────────────────────────────────────────
     /// Cambiar el tema activo por nombre y persistir en config.toml
     ChangeTheme(String),

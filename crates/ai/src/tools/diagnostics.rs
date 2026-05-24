@@ -1,15 +1,21 @@
 use async_trait::async_trait;
 use color_eyre::Result;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use std::sync::Arc;
 use crate::provider::ToolDef;
-use super::Tool;
+use super::{Tool, tool_parameters_schema, validate_tool_args};
 
 /// Expone los diagnósticos LSP del buffer activo al modelo.
 /// Los diagnósticos se inyectan desde fuera a través de `set_diagnostics`.
 pub struct DiagnosticsTool {
     diagnostics: Arc<RwLock<Vec<String>>>,
 }
+
+// DCA-IA-IMPROVEMENT: Esquema vacio explicito para herramientas sin argumentos.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct DiagnosticsArgs {}
 
 impl DiagnosticsTool {
     pub fn new() -> Self {
@@ -31,14 +37,12 @@ impl Tool for DiagnosticsTool {
         ToolDef {
             name: "get_diagnostics".into(),
             description: "Devuelve los errores y advertencias LSP del archivo activo en el editor.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {}
-            }),
+            parameters: tool_parameters_schema::<DiagnosticsArgs>(),
         }
     }
 
-    async fn execute(&self, _args: &serde_json::Value) -> Result<String> {
+    async fn execute(&self, args: &serde_json::Value) -> Result<String> {
+        let _: DiagnosticsArgs = validate_tool_args("get_diagnostics", args)?;
         let diags = self.diagnostics.read().await;
         if diags.is_empty() {
             Ok("No hay diagnósticos en el buffer activo.".into())

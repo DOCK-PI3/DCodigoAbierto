@@ -63,7 +63,8 @@ unicode-width = "0.1"
 walkdir       = "2"
 lsp-types     = "0.97"
 nucleo        = "0.5"
-notify        = { version = "6", default-features = false, features = ["macos_fsevent"] }
+arboard       = "3"
+notify        = "6"
 clap          = { version = "4", features = ["derive", "env"] }
 clap_complete = "4"
 reqwest       = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }

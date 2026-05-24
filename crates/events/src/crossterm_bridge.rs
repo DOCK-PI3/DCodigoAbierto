@@ -1,4 +1,4 @@
-use crossterm::event::{Event, EventStream};
+use crossterm::event::{Event, EventStream, KeyEventKind};
 use futures::StreamExt;
 use tracing::{debug, warn};
 
@@ -16,6 +16,12 @@ pub fn spawn_crossterm_task(tx: EventSender) {
         loop {
             match stream.next().await {
                 Some(Ok(Event::Key(key))) => {
+                    // En Windows, crossterm reporta eventos Press, Release y Repeat
+                    // por separado. Filtramos solo Release para evitar doble pulsación,
+                    // manteniendo Press y Repeat (tecla mantenida pulsada).
+                    if key.kind == KeyEventKind::Release {
+                        continue;
+                    }
                     debug!("KeyEvent: {:?}", key);
                     if tx.send(AppMessage::Key(key)).is_err() {
                         break; // receptor caído → la app terminó

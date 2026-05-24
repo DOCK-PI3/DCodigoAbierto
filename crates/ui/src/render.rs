@@ -366,11 +366,13 @@ fn build_palette_items<'a>(view: &ViewState<'a>) -> Vec<PaletteItem> {
         "Cambiar a Build"
     };
     vec![
+        // ── Archivos ──
         PaletteItem { kind: PaletteItemKind::Section { label: "Archivos" }, label: String::new() },
         PaletteItem {
             kind: PaletteItemKind::Action { id: PaletteActionId::OpenEditor, shortcut: "ctrl+p" },
             label: "Abrir archivo…".to_string(),
         },
+        // ── Sesión ──
         PaletteItem { kind: PaletteItemKind::Section { label: "Sesión" }, label: String::new() },
         PaletteItem {
             kind: PaletteItemKind::Action { id: PaletteActionId::NewSession, shortcut: "" },
@@ -380,6 +382,7 @@ fn build_palette_items<'a>(view: &ViewState<'a>) -> Vec<PaletteItem> {
             kind: PaletteItemKind::Action { id: PaletteActionId::InjectBuffer, shortcut: "ctrl+i" },
             label: "Inyectar buffer como contexto".to_string(),
         },
+        // ── Agente ──
         PaletteItem { kind: PaletteItemKind::Section { label: "Agente" }, label: String::new() },
         PaletteItem {
             kind: PaletteItemKind::Action { id: PaletteActionId::SwitchModel, shortcut: "ctrl+o" },
@@ -393,6 +396,7 @@ fn build_palette_items<'a>(view: &ViewState<'a>) -> Vec<PaletteItem> {
             kind: PaletteItemKind::Action { id: PaletteActionId::ToggleMode, shortcut: "tab" },
             label: mode_toggle.to_string(),
         },
+        // ── Sistema ──
         PaletteItem { kind: PaletteItemKind::Section { label: "Sistema" }, label: String::new() },
         PaletteItem {
             kind: PaletteItemKind::Action { id: PaletteActionId::AbortStream, shortcut: "ctrl+x" },

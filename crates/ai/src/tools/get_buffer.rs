@@ -1,15 +1,21 @@
 use async_trait::async_trait;
 use color_eyre::Result;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use std::sync::Arc;
 use crate::provider::ToolDef;
-use super::Tool;
+use super::{Tool, tool_parameters_schema, validate_tool_args};
 
 /// Expone el contenido del buffer activo del editor al modelo.
 /// El contenido se inyecta desde fuera a través de `set_content`.
 pub struct GetBufferTool {
     content: Arc<RwLock<String>>,
 }
+
+// DCA-IA-IMPROVEMENT: Esquema vacio explicito para herramientas sin argumentos.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct GetBufferArgs {}
 
 impl GetBufferTool {
     pub fn new() -> Self {
@@ -31,14 +37,12 @@ impl Tool for GetBufferTool {
         ToolDef {
             name: "get_buffer".into(),
             description: "Devuelve el contenido completo del archivo abierto actualmente en el editor.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {}
-            }),
+            parameters: tool_parameters_schema::<GetBufferArgs>(),
         }
     }
 
-    async fn execute(&self, _args: &serde_json::Value) -> Result<String> {
+    async fn execute(&self, args: &serde_json::Value) -> Result<String> {
+        let _: GetBufferArgs = validate_tool_args("get_buffer", args)?;
         let content = self.content.read().await;
         if content.is_empty() {
             Ok("El editor no tiene ningún archivo abierto.".into())

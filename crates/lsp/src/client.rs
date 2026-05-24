@@ -382,7 +382,7 @@ fn parse_completions(val: &Value) -> Vec<CompletionEntry> {
     let result = val.get("result");
     let items_val = result
         .and_then(|r| r.get("items"))
-        .or_else(|| result.and_then(|r| r.as_array()).map(|_| result.unwrap()));
+        .or_else(|| result.filter(|r| r.as_array().is_some()));
 
     let Some(items) = items_val.and_then(|v| v.as_array()) else {
         return vec![];

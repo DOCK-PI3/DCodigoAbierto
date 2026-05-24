@@ -1,10 +1,32 @@
 use async_trait::async_trait;
-use color_eyre::Result;
+use color_eyre::{Result, eyre::eyre};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use std::io::BufRead;
 use crate::provider::ToolDef;
-use super::Tool;
+use super::{Tool, tool_parameters_schema, validate_tool_args};
 
 pub struct GrepTool;
+
+// DCA-IA-IMPROVEMENT: Argumentos tipados para grep.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GrepArgs {
+    /// Texto o patron a buscar.
+    pub pattern: String,
+    /// Archivo o directorio donde buscar.
+    #[schemars(default = "default_search_path")]
+    pub path: Option<String>,
+    /// Si diferencia mayusculas/minusculas.
+    #[schemars(default)]
+    pub case_sensitive: Option<bool>,
+    /// Filtro opcional de extension o patron de archivo.
+    #[schemars(default)]
+    pub include: Option<String>,
+}
+
+fn default_search_path() -> Option<String> {
+    Some(".".to_string())
+}
 
 #[async_trait]
 impl Tool for GrepTool {
@@ -12,26 +34,20 @@ impl Tool for GrepTool {
         ToolDef {
             name: "grep".into(),
             description: "Busca texto (o regex) en archivos del proyecto. Devuelve las líneas que coinciden con su número y ruta (máx 100 resultados).".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["pattern"],
-                "properties": {
-                    "pattern": { "type": "string", "description": "Texto o expresión regular a buscar" },
-                    "path": { "type": "string", "description": "Archivo o directorio donde buscar (default: '.')" },
-                    "case_sensitive": { "type": "boolean", "description": "Distinguir mayúsculas (default: false)" },
-                    "include": { "type": "string", "description": "Filtro de extensión ej: '*.rs'" }
-                }
-            }),
+            parameters: tool_parameters_schema::<GrepArgs>(),
         }
     }
 
     async fn execute(&self, args: &serde_json::Value) -> Result<String> {
-        let pattern = args["pattern"].as_str()
-            .ok_or_else(|| color_eyre::eyre::eyre!("Falta 'pattern'"))?;
-        let search_path = args["path"].as_str().unwrap_or(".").to_string();
-        let case_sensitive = args["case_sensitive"].as_bool().unwrap_or(false);
-        let include = args["include"].as_str().map(|s| s.to_string());
-        let pattern = pattern.to_string();
+        let args: GrepArgs = validate_tool_args("grep", args)?;
+        if args.pattern.trim().is_empty() {
+            return Err(eyre!("grep: 'pattern' no puede estar vacio"));
+        }
+
+        let pattern = args.pattern;
+        let search_path = args.path.unwrap_or_else(|| ".".to_string());
+        let case_sensitive = args.case_sensitive.unwrap_or(false);
+        let include = args.include;
 
         let results = tokio::task::spawn_blocking(move || {
             grep_files(&pattern, &search_path, case_sensitive, include.as_deref())

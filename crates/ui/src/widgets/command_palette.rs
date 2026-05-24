@@ -113,14 +113,18 @@ impl<'a> Widget for CommandPaletteWidget<'a> {
 
         // Lista de items
         let visible_h = list_area.height as usize;
-        let scroll = if self.selected >= visible_h {
-            self.selected - visible_h + 1
-        } else {
-            0
+        // Calcular qué índice del array (incluyendo Sections) corresponde
+        // al índice lógico de selección (solo items seleccionables)
+        let selected_array_idx = selectable_index(self.items, self.selected);
+        // Scroll basado en el índice real del array, no el lógico
+        let scroll = match selected_array_idx {
+            Some(real_idx) if real_idx >= visible_h => real_idx - visible_h + 1,
+            _ => 0,
         };
 
         let mut items: Vec<ListItem> = vec![];
         for (i, item) in self.items.iter().enumerate() {
+            let is_selected = Some(i) == selected_array_idx;
             let item_line = match &item.kind {
                 PaletteItemKind::Section { label } => {
                     Line::from(Span::styled(
@@ -130,7 +134,7 @@ impl<'a> Widget for CommandPaletteWidget<'a> {
                 }
                 PaletteItemKind::File { path } => {
                     let display = short_path(path);
-                    let style = if i == self.selected {
+                    let style = if is_selected {
                         Style::default().fg(bg).bg(acc)
                     } else {
                         Style::default().fg(fg)
@@ -138,7 +142,7 @@ impl<'a> Widget for CommandPaletteWidget<'a> {
                     Line::from(Span::styled(format!("  {display}"), style))
                 }
                 PaletteItemKind::Model { name } => {
-                    let style = if i == self.selected {
+                    let style = if is_selected {
                         Style::default().fg(bg).bg(acc)
                     } else {
                         Style::default().fg(fg)
@@ -146,12 +150,12 @@ impl<'a> Widget for CommandPaletteWidget<'a> {
                     Line::from(Span::styled(format!("  {name}"), style))
                 }
                 PaletteItemKind::Action { shortcut, .. } => {
-                    let label_style = if i == self.selected {
+                    let label_style = if is_selected {
                         Style::default().fg(bg).bg(acc)
                     } else {
                         Style::default().fg(fg)
                     };
-                    let short_style = if i == self.selected {
+                    let short_style = if is_selected {
                         Style::default().fg(bg).bg(acc)
                     } else {
                         Style::default().fg(info)
@@ -162,7 +166,7 @@ impl<'a> Widget for CommandPaletteWidget<'a> {
                         .saturating_sub(label_padded.len() + shortcut.len());
                     Line::from(vec![
                         Span::styled(label_padded, label_style),
-                        Span::styled(" ".repeat(pad), if i == self.selected {
+                        Span::styled(" ".repeat(pad), if is_selected {
                             Style::default().bg(acc)
                         } else {
                             Style::default()
@@ -201,6 +205,16 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
             Constraint::Percentage((100 - percent_x) / 2),
         ])
         .split(popup_layout[1])[1]
+}
+
+/// Mapea el índice lógico de selección (0..N solo items seleccionables)
+/// al índice real dentro del array de items (que incluye Sections no seleccionables).
+fn selectable_index(items: &[PaletteItem], selected: usize) -> Option<usize> {
+    items.iter()
+        .enumerate()
+        .filter(|(_, item)| item.is_selectable())
+        .nth(selected)
+        .map(|(i, _)| i)
 }
 
 fn short_path(path: &str) -> String {

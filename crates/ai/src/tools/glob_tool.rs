@@ -1,9 +1,25 @@
 use async_trait::async_trait;
-use color_eyre::Result;
+use color_eyre::{Result, eyre::eyre};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use crate::provider::ToolDef;
-use super::Tool;
+use super::{Tool, tool_parameters_schema, validate_tool_args};
 
 pub struct GlobTool;
+
+// DCA-IA-IMPROVEMENT: Argumentos tipados para glob.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GlobArgs {
+    /// Patron glob a buscar.
+    pub pattern: String,
+    /// Directorio base.
+    #[schemars(default = "default_cwd")]
+    pub cwd: Option<String>,
+}
+
+fn default_cwd() -> Option<String> {
+    Some(".".to_string())
+}
 
 #[async_trait]
 impl Tool for GlobTool {
@@ -11,23 +27,19 @@ impl Tool for GlobTool {
         ToolDef {
             name: "glob".into(),
             description: "Busca archivos cuyas rutas coinciden con un patrón glob. Devuelve las rutas encontradas (máx 200).".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["pattern"],
-                "properties": {
-                    "pattern": { "type": "string", "description": "Patrón glob (ej: src/**/*.rs)" },
-                    "cwd": { "type": "string", "description": "Directorio base (default: CWD)" }
-                }
-            }),
+            parameters: tool_parameters_schema::<GlobArgs>(),
         }
     }
 
     async fn execute(&self, args: &serde_json::Value) -> Result<String> {
-        let pattern = args["pattern"].as_str()
-            .ok_or_else(|| color_eyre::eyre::eyre!("Falta 'pattern'"))?;
-        let cwd = args["cwd"].as_str().unwrap_or(".");
+        let args: GlobArgs = validate_tool_args("glob", args)?;
+        let cwd = args.cwd.unwrap_or_else(|| ".".to_string());
 
-        let full_pattern = format!("{cwd}/{pattern}");
+        if args.pattern.trim().is_empty() {
+            return Err(eyre!("glob: 'pattern' no puede estar vacio"));
+        }
+
+        let full_pattern = format!("{cwd}/{}", args.pattern);
         let mut matches: Vec<String> = vec![];
 
         // Usamos walkdir + fnmatch-like via glob crate (no disponible, hacemos con find manual)

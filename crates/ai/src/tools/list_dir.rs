@@ -1,9 +1,30 @@
 use async_trait::async_trait;
 use color_eyre::Result;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use crate::provider::ToolDef;
-use super::Tool;
+use super::{Tool, tool_parameters_schema, validate_tool_args};
 
 pub struct ListDirTool;
+
+// DCA-IA-IMPROVEMENT: Argumentos tipados para list_dir.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ListDirArgs {
+    /// Ruta del directorio a listar.
+    #[schemars(default = "default_list_dir_path")]
+    pub path: Option<String>,
+    /// Niveles maximos de profundidad a mostrar.
+    #[schemars(default = "default_list_dir_depth")]
+    pub depth: Option<u8>,
+}
+
+fn default_list_dir_path() -> Option<String> {
+    Some(".".to_string())
+}
+
+fn default_list_dir_depth() -> Option<u8> {
+    Some(1)
+}
 
 #[async_trait]
 impl Tool for ListDirTool {
@@ -13,19 +34,7 @@ impl Tool for ListDirTool {
             description: "Lista el contenido de un directorio (archivos y subcarpetas). \
                           Úsalo en lugar de 'shell ls' para explorar el proyecto sin pedir aprobación. \
                           Devuelve nombre, tipo (file/dir) y tamaño de cada entrada.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Ruta del directorio a listar (default: '.' = CWD)"
-                    },
-                    "depth": {
-                        "type": "integer",
-                        "description": "Niveles de profundidad a mostrar (1 = solo el directorio raíz, default: 1, máx: 3)"
-                    }
-                }
-            }),
+            parameters: tool_parameters_schema::<ListDirArgs>(),
         }
     }
 
@@ -33,15 +42,17 @@ impl Tool for ListDirTool {
     fn requires_approval(&self) -> bool { false }
 
     async fn execute(&self, args: &serde_json::Value) -> Result<String> {
-        let path  = args["path"].as_str().unwrap_or(".").to_string();
-        let depth = args["depth"].as_u64().unwrap_or(1).min(3) as usize;
+        let args: ListDirArgs = validate_tool_args("list_dir", args)?;
+        let path = args.path.unwrap_or_else(|| ".".to_string());
+        let depth = args.depth.unwrap_or(1).min(3) as usize;
+        let path_for_worker = path.clone();
 
         let result = tokio::task::spawn_blocking(move || {
-            list_recursive(std::path::Path::new(&path), depth, 0)
+            list_recursive(std::path::Path::new(&path_for_worker), depth, 0)
         }).await??;
 
         if result.is_empty() {
-            return Ok(format!("El directorio '{}' está vacío.", args["path"].as_str().unwrap_or(".")));
+            return Ok(format!("El directorio '{}' está vacío.", path));
         }
 
         Ok(result)

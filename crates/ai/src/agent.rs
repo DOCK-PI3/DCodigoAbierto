@@ -10,7 +10,24 @@ const APPROVAL_TIMEOUT_SECS: u64 = 300;
 
 use crate::provider::{AiEvent, AiMessage, AiProvider, ToolCall, ToolDef};
 use crate::session::ChatSession;
-use crate::tools::Tool;
+use crate::tools::{Tool, ToolError};
+
+#[derive(Debug, Clone)]
+pub struct PruneConfig {
+    pub max_recent_messages: usize,
+    pub max_tool_content_chars: usize,
+    pub preserve_last_tool_results: usize,
+}
+
+impl Default for PruneConfig {
+    fn default() -> Self {
+        Self {
+            max_recent_messages: 24,
+            max_tool_content_chars: 4_000,
+            preserve_last_tool_results: 4,
+        }
+    }
+}
 
 /// Orquesta una sesión de chat con un proveedor de IA y un conjunto de herramientas.
 pub struct AiAgent {
@@ -79,6 +96,7 @@ impl AiAgent {
     ) -> Result<()> {
         // Construimos el listado de mensajes con el system prompt
         let mut context = build_context(&self.system_prompt, &session.messages);
+        let prune_config = PruneConfig::default();
         let defs = self.tool_defs();
         let mut tool_iteration: u32 = 0;
 
@@ -99,9 +117,10 @@ impl AiAgent {
             // Lanzar stream — forward de chunks en tiempo real (no bufferizar hasta EOF)
             // El bloque {} garantiza que stream_fut se libera ANTES de mutar context
             let (assistant_text, tool_calls_this_turn) = {
+                let pruned_context = prune_context(&context, &prune_config);
                 let (inner_tx, mut inner_rx) = unbounded_channel::<AiEvent>();
                 let stream_fut = self.provider.chat_stream(
-                    &context, &defs, self.max_tokens, self.temperature, self.top_p, inner_tx,
+                    &pruned_context, &defs, self.max_tokens, self.temperature, self.top_p, inner_tx,
                 );
                 tokio::pin!(stream_fut);
 
@@ -213,7 +232,16 @@ impl AiAgent {
                     Ok(r) => r,
                     Err(e) => {
                         warn!("Tool {} error: {e}", tc.name);
-                        format!("Error: {e}")
+                        if let Some(tool_error) = e.downcast_ref::<ToolError>() {
+                            tool_error.to_json()
+                        } else {
+                            serde_json::json!({
+                                "error_type": "unexpected",
+                                "message": e.to_string(),
+                                "hint": "Revisa los argumentos o consulta al usuario para mas contexto"
+                            })
+                            .to_string()
+                        }
                     }
                 };
 
@@ -247,6 +275,61 @@ fn build_context(system_prompt: &str, messages: &[AiMessage]) -> Vec<AiMessage> 
     let mut ctx = vec![AiMessage::system(system_prompt)];
     ctx.extend_from_slice(messages);
     ctx
+}
+
+// DCA-IA-IMPROVEMENT: Limita el contexto reenviado al modelo y recorta tool results largos.
+pub fn prune_context(messages: &[AiMessage], config: &PruneConfig) -> Vec<AiMessage> {
+    if messages.is_empty() {
+        return vec![];
+    }
+
+    let mut keep_indices = std::collections::BTreeSet::new();
+    keep_indices.insert(0);
+
+    let recent_start = messages
+        .len()
+        .saturating_sub(config.max_recent_messages.max(1));
+    for index in recent_start..messages.len() {
+        keep_indices.insert(index);
+    }
+
+    let mut preserved_tool_results = 0usize;
+    for index in (1..messages.len()).rev() {
+        if preserved_tool_results >= config.preserve_last_tool_results {
+            break;
+        }
+        if messages[index].tool_result.is_some() {
+            keep_indices.insert(index);
+            preserved_tool_results += 1;
+        }
+    }
+
+    keep_indices
+        .into_iter()
+        .map(|index| truncate_tool_result(messages[index].clone(), config.max_tool_content_chars))
+        .collect()
+}
+
+fn truncate_tool_result(mut message: AiMessage, max_chars: usize) -> AiMessage {
+    if max_chars == 0 || message.tool_result.is_none() || message.content.len() <= max_chars {
+        return message;
+    }
+
+    let head_lines: Vec<&str> = message.content.lines().take(5).collect();
+    let tail_lines: Vec<&str> = message.content.lines().rev().take(5).collect();
+    let tail = tail_lines.into_iter().rev().collect::<Vec<_>>().join("\n");
+    let truncated = format!(
+        "...[truncado {} chars]...\n{}\n...\n{}",
+        message.content.len(),
+        head_lines.join("\n"),
+        tail,
+    );
+
+    message.content = truncated.clone();
+    if let Some(tool_result) = &mut message.tool_result {
+        tool_result.content = truncated;
+    }
+    message
 }
 
 fn push_tool_result_to_context(

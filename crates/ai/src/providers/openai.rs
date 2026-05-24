@@ -181,6 +181,33 @@ impl AiProvider for OpenAiProvider {
         let mut tc_names: Vec<String> = vec![];
         let mut tc_args: Vec<String> = vec![];
 
+        // Helper: envía tool calls pendientes y limpia los buffers
+        fn flush_tool_calls(
+            tc_ids: &mut Vec<Option<String>>,
+            tc_names: &mut Vec<String>,
+            tc_args: &mut Vec<String>,
+            tx: &UnboundedSender<AiEvent>,
+        ) {
+            for (i, name) in tc_names.iter().enumerate() {
+                if name.is_empty() { continue; }
+                let id = tc_ids.get(i).and_then(|x| x.clone())
+                    .unwrap_or_else(|| format!("call_{i}"));
+                let args: serde_json::Value = serde_json::from_str(
+                    tc_args.get(i).map(|s| s.as_str()).unwrap_or("{}"),
+                ).unwrap_or(serde_json::json!({}));
+                let _ = tx.send(AiEvent::ToolCallRequest(ToolCall {
+                    id,
+                    name: name.clone(),
+                    arguments: args,
+                    buffer_version: None,
+                    target_buffer_id: None,
+                }));
+            }
+            tc_ids.clear();
+            tc_names.clear();
+            tc_args.clear();
+        }
+
         while let Some(chunk) = stream.next().await {
             let bytes = match chunk {
                 Ok(b) => b,
@@ -192,23 +219,12 @@ impl AiProvider for OpenAiProvider {
 
             for line in std::str::from_utf8(&bytes).unwrap_or("").lines() {
                 let line = line.trim();
-                if line.is_empty() || line == "data: [DONE]" {
-                    // Flush tool calls pendientes
-                    for (i, name) in tc_names.iter().enumerate() {
-                        if name.is_empty() { continue; }
-                        let id = tc_ids.get(i).and_then(|x| x.clone())
-                            .unwrap_or_else(|| format!("call_{i}"));
-                        let args: serde_json::Value = serde_json::from_str(
-                            tc_args.get(i).map(|s| s.as_str()).unwrap_or("{}"),
-                        ).unwrap_or(serde_json::json!({}));
-                        let _ = tx.send(AiEvent::ToolCallRequest(ToolCall {
-                            id, name: name.clone(), arguments: args,
-                        }));
-                    }
-                    if line == "data: [DONE]" {
-                        let _ = tx.send(AiEvent::Done);
-                        return Ok(());
-                    }
+                if line == "data: [DONE]" {
+                    flush_tool_calls(&mut tc_ids, &mut tc_names, &mut tc_args, &tx);
+                    let _ = tx.send(AiEvent::Done);
+                    return Ok(());
+                }
+                if line.is_empty() {
                     continue;
                 }
 
@@ -254,6 +270,9 @@ impl AiProvider for OpenAiProvider {
                 }
             }
         }
+
+        // Flush tool calls pendientes que no se hayan enviado (stream cerrado sin [DONE])
+        flush_tool_calls(&mut tc_ids, &mut tc_names, &mut tc_args, &tx);
 
         let _ = tx.send(AiEvent::Done);
         Ok(())

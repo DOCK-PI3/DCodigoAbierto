@@ -1,11 +1,20 @@
 use async_trait::async_trait;
-use color_eyre::Result;
+use color_eyre::{Result, eyre::eyre};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use crate::provider::ToolDef;
-use super::Tool;
+use super::{Tool, tool_parameters_schema, validate_tool_args};
 
 // ── WebFetchTool ──────────────────────────────────────────────────────────────
 
 pub struct WebFetchTool;
+
+// DCA-IA-IMPROVEMENT: Argumentos tipados para herramientas web.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct WebFetchArgs {
+    /// URL absoluta a descargar.
+    pub url: String,
+}
 
 #[async_trait]
 impl Tool for WebFetchTool {
@@ -15,28 +24,18 @@ impl Tool for WebFetchTool {
             description: "Descarga una URL y devuelve el texto limpio (sin HTML). \
                           Úsalo para leer documentación, artículos o páginas web. \
                           Para BUSCAR en internet usa web_search en su lugar.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["url"],
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "URL completa a descargar (http:// o https://)"
-                    }
-                }
-            }),
+            parameters: tool_parameters_schema::<WebFetchArgs>(),
         }
     }
 
     async fn execute(&self, args: &serde_json::Value) -> Result<String> {
-        let url = args["url"].as_str()
-            .ok_or_else(|| color_eyre::eyre::eyre!("Falta 'url'"))?;
+        let args: WebFetchArgs = validate_tool_args("web_fetch", args)?;
 
-        if !url.starts_with("http://") && !url.starts_with("https://") {
-            return Err(color_eyre::eyre::eyre!("Solo se permiten URLs http/https"));
+        if !args.url.starts_with("http://") && !args.url.starts_with("https://") {
+            return Err(eyre!("web_fetch: solo se permiten URLs http/https"));
         }
 
-        let text = fetch_and_clean(url).await?;
+        let text = fetch_and_clean(&args.url).await?;
         Ok(text)
     }
 }
@@ -44,6 +43,19 @@ impl Tool for WebFetchTool {
 // ── WebSearchTool ─────────────────────────────────────────────────────────────
 
 pub struct WebSearchTool;
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct WebSearchArgs {
+    /// Consulta de busqueda.
+    pub query: String,
+    /// Numero maximo de resultados.
+    #[schemars(default = "default_web_results")]
+    pub max_results: Option<u8>,
+}
+
+fn default_web_results() -> Option<u8> {
+    Some(8)
+}
 
 #[async_trait]
 impl Tool for WebSearchTool {
@@ -53,29 +65,18 @@ impl Tool for WebSearchTool {
             description: "Busca en internet usando DuckDuckGo. Devuelve los primeros resultados \
                           (título + URL + fragmento). Úsalo cuando necesites información actualizada, \
                           ejemplos de código, o documentación de librerías.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["query"],
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Consulta de búsqueda en lenguaje natural o términos técnicos"
-                    },
-                    "max_results": {
-                        "type": "integer",
-                        "description": "Número máximo de resultados (default: 8, máx: 15)"
-                    }
-                }
-            }),
+            parameters: tool_parameters_schema::<WebSearchArgs>(),
         }
     }
 
     async fn execute(&self, args: &serde_json::Value) -> Result<String> {
-        let query = args["query"].as_str()
-            .ok_or_else(|| color_eyre::eyre::eyre!("Falta 'query'"))?;
-        let max = args["max_results"].as_u64().unwrap_or(8).min(15) as usize;
+        let args: WebSearchArgs = validate_tool_args("web_search", args)?;
+        if args.query.trim().is_empty() {
+            return Err(eyre!("web_search: 'query' no puede estar vacio"));
+        }
+        let max = args.max_results.unwrap_or(8).min(15) as usize;
 
-        let results = ddg_search(query, max).await?;
+        let results = ddg_search(&args.query, max).await?;
         if results.is_empty() {
             return Ok("No se encontraron resultados para esa búsqueda.".into());
         }
@@ -87,17 +88,44 @@ impl Tool for WebSearchTool {
 
 async fn fetch_and_clean(url: &str) -> Result<String> {
     let client = build_client()?;
-    let resp = client.get(url)
-        .send().await
-        .map_err(|e| color_eyre::eyre::eyre!("Error al conectar con {url}: {e}"))?;
+    
+    // Reintento único en caso de error transitorio
+    let resp = match client.get(url).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            // Un reintento después de 500ms
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            client.get(url).send().await
+                .map_err(|e2| color_eyre::eyre::eyre!("Error al conectar con {url}: {e2} (reintento fallido tras: {e})"))?
+        }
+    };
 
     let status = resp.status();
     if !status.is_success() {
-        return Err(color_eyre::eyre::eyre!("HTTP {} para {url}", status));
+        let status_code = status.as_u16();
+        let hint = match status_code {
+            404 => "La página no existe. Verifica la URL.",
+            403 => "Acceso denegado. El sitio puede requerir autenticación.",
+            429 => "Demasiadas peticiones. Espera unos segundos.",
+            500..=599 => "Error interno del servidor. Intenta más tarde.",
+            _ => "Verifica que la URL sea correcta.",
+        };
+        return Err(color_eyre::eyre::eyre!("HTTP {} para {url}: {hint}", status));
+    }
+
+    // Verificar Content-Type para no descargar binarios grandes
+    if let Some(ct) = resp.headers().get("content-type").and_then(|v| v.to_str().ok()) {
+        if ct.contains("video/") || ct.contains("audio/") || ct.contains("application/octet-stream") {
+            return Err(color_eyre::eyre::eyre!("Tipo de contenido no soportado ({ct}) para {url}"));
+        }
     }
 
     let bytes = resp.bytes().await
-        .map_err(|e| color_eyre::eyre::eyre!("Error leyendo respuesta: {e}"))?;
+        .map_err(|e| color_eyre::eyre::eyre!("Error leyendo respuesta de {url}: {e}"))?;
+
+    if bytes.is_empty() {
+        return Ok(format!("La URL {url} devolvió un cuerpo vacío."));
+    }
 
     // HTML parsing es CPU-intensivo — hacerlo en spawn_blocking para no bloquear el runtime
     let url_owned = url.to_string();

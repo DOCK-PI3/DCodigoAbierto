@@ -306,6 +306,24 @@ impl App {
                 }
             }
 
+            // ── Buffer / Editor ──────────────────────────────────────────
+            Command::SaveBuffer { path, content } => {
+                let tx_save = tx.clone();
+                let path_clone = path.clone();
+                tokio::spawn(async move {
+                    match tokio::fs::write(&path_clone, &content).await {
+                        Ok(()) => {
+                            tracing::info!("Archivo guardado: {}", path_clone);
+                            let _ = tx_save.send(AppMessage::FileSaved { path: path_clone, success: true });
+                        }
+                        Err(e) => {
+                            tracing::error!("Error guardando {}: {}", path_clone, e);
+                            let _ = tx_save.send(AppMessage::FileSaved { path: path_clone, success: false });
+                        }
+                    }
+                });
+            }
+
             // ── IA ────────────────────────────────────────────────────────────
             Command::AiSendMessage => {
                 // Añadir el último mensaje del usuario a la sesión del agente
@@ -327,7 +345,7 @@ impl App {
                 let agent = AiAgent::new(
                     provider,
                     tools,
-                    &self.config.ai.system_prompt,
+                    &self.config.ai.build_system_prompt(),
                     self.config.ai.max_tokens,
                     self.config.ai.temperature,
                     self.config.ai.top_p,
@@ -443,6 +461,37 @@ impl App {
                 if let Some(t) = state.available_themes.iter().find(|t| t.name == name).cloned() {
                     self.config.theme = t;
                     let _ = self.config.save_theme();
+                }
+            }
+
+            // ── Skills ───────────────────────────────────────────────────────
+            Command::InstallSkills { repo, skill } => {
+                let manager = dca_config::SkillsManager::new(dca_config::SkillsManager::default_dir());
+                tokio::spawn(async move {
+                    match manager.install_from_github(&repo, skill.as_deref()).await {
+                        Ok(installed) => {
+                            let names: Vec<String> = installed.iter().map(|s| s.name.clone()).collect();
+                            tracing::info!("Skills instaladas: {:?}", names);
+                        }
+                        Err(e) => {
+                            tracing::error!("Error instalando skills: {}", e);
+                        }
+                    }
+                });
+            }
+            Command::ListSkills => {
+                let manager = dca_config::SkillsManager::new(dca_config::SkillsManager::default_dir());
+                match manager.list_installed() {
+                    Ok(skills) => {
+                        if skills.is_empty() {
+                            tracing::info!("No hay skills instaladas.");
+                        } else {
+                            for s in &skills {
+                                tracing::info!("  {} - {}", s.name, s.description);
+                            }
+                        }
+                    }
+                    Err(e) => tracing::error!("Error listando skills: {}", e),
                 }
             }
         }

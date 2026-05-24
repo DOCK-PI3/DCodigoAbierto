@@ -9,7 +9,7 @@ cargo build --release
 ./target/release/dca
 ```
 
-> Binario resultante: **~6.5 MB** (incluye reqwest + rustls para llamadas a APIs de IA).
+> Binario resultante: **~7.8 MB** (incluye reqwest + rustls para APIs de IA, arboard para portapapeles, y sistema de skills).
 
 ## Uso
 
@@ -35,7 +35,9 @@ dca --completions fish  > ~/.config/fish/completions/dca.fish
 |---|---|
 | `Ctrl+Q` | Salir |
 | `Ctrl+S` | Guardar archivo |
-| `Ctrl+P` | Fuzzy finder de archivos |
+| `Ctrl+C` | Copiar línea actual al portapapeles |
+| `Ctrl+V` | Pegar desde el portapapeles |
+| `Ctrl+P` | Command palette (fuzzy finder, modelos, skills, temas…) |
 | `Ctrl+G` | Ir a definición (LSP) |
 | `Ctrl+R` | Encontrar referencias (LSP) |
 | `Ctrl+W` | Cerrar buffer activo |
@@ -98,10 +100,10 @@ provider      = "ollama"                   # ollama | openai | anthropic | groq 
 base_url      = "http://localhost:11434"    # URL base del proveedor
 api_key       = ""                         # clave API (o usa la variable DCA_AI_API_KEY)
 model         = "llama3.2"                 # modelo a usar
-system_prompt = "Eres un asistente experto en programación."
+system_prompt = "[ROL]\nEres DCA, asistente de programacion en terminal..." # por defecto se genera un prompt estructurado largo
 max_tokens    = 4096
 tools_enabled = true    # habilitar herramientas (leer/escribir archivos, shell, grep…)
-web_enabled   = false   # habilitar herramienta web_fetch
+web_enabled   = false   # habilitar web_search y web_fetch
 temperature   = 0.7     # creatividad del modelo (0.0 – 2.0)
 top_p         = 0.95    # nucleus sampling (0.0 – 1.0)
 ```
@@ -175,8 +177,8 @@ crates/ai/src/
   tools/
     read_file.rs       ← lectura de archivos con rango de líneas
     write_file.rs      ← escritura con creación de directorios (requiere aprobación)
-    shell.rs           ← /bin/sh -c cmd, timeout, cwd (requiere aprobación)
-    web_fetch.rs       ← GET URL, truncado a 32 KB
+    shell.rs           ← shell multiplataforma (cmd /c en Windows, /bin/sh -c en Unix)
+    web_fetch.rs       ← GET URL con reintentos, truncado a 32 KB
     glob_tool.rs       ← búsqueda recursiva de archivos por patrón glob
     grep_tool.rs       ← búsqueda de texto/regex en archivos
     diagnostics.rs     ← expone diagnósticos LSP al modelo
@@ -185,6 +187,15 @@ crates/ai/src/
   session.rs           ← ChatSession: historial de mensajes por turno
   agent.rs             ← AiAgent: loop agentico con gate de aprobación
   lib.rs               ← re-exports públicos
+```
+
+### Crate `dca-config`: Skills
+
+```
+crates/config/src/
+  skills.rs            ← SkillsManager: install_from_github(), list, remove, build_skills_prompt()
+                       ← Parser de SKILL.md con frontmatter YAML
+                       ← Skills se almacenan en ~/.config/dca/skills/
 ```
 
 ### Flujo de mensajes
@@ -217,7 +228,48 @@ AiAgent solicita tool
    → AiAgent ejecuta (o salta) la herramienta y continúa el loop
 ```
 
-### Fase 7 — Optimización agentica & Temas ✅
+### Fase 7 — Correcciones de bugs, clipboard, skills y fiabilidad ✅
+
+#### Doble pulsación en Windows
+- **Bug**: crossterm reporta `KeyEventKind::Press`, `Release` y `Repeat` en Windows; el código reenviaba todos al event bus.
+- **Fix**: filtrado de `Release` para solo procesar `Press` y `Repeat` en `crossterm_bridge.rs`.
+
+#### Shell tool multiplataforma
+- **Bug**: hardcodeaba `/bin/sh -c`, no funcionaba en Windows.
+- **Fix**: detección con `cfg!(windows)`: usa `cmd /c` en Windows, `/bin/sh -c` en Unix.
+
+#### Portapapeles (arboard)
+- `Ctrl+C` — copiar línea actual del editor al portapapeles.
+- `Ctrl+V` — pegar contenido del portapapeles en el editor, con soporte multilínea.
+
+#### Guardado fiable (Ctrl+S)
+- Dirty flag ahora se limpia **solo tras escritura exitosa** a disco, vía mensaje `FileSaved` en el event bus.
+- Uso de `tokio::fs::write` en lugar de `std::fs::write` bloqueante.
+
+#### Cursor Unicode-safe
+- Movimiento `Left`/`Right`/`Backspace` en chat y palette ahora usan `is_char_boundary()` y `ch.len_utf8()` — no rompen con caracteres multi-byte.
+
+#### Fuzzy finder optimizado
+- `FuzzyEngine` con `Nucleo` reutilizable, construido una vez al cargar el file tree.
+- Ya no se crea/destruye el motor en cada pulsación de tecla.
+
+#### Truncación UTF-8 segura en herramientas IA
+- Shell tool: head+tail truncation con `find_char_boundary()` para no cortar caracteres a la mitad.
+- Skills: instrucciones truncadas a 8 KB con `is_char_boundary()`.
+
+#### Web fetch robusto
+- Reintento único con 500ms de delay para errores transitorios.
+- Guardia de content-type (bloquea video/audio/octet-stream).
+
+#### Sistema de Skills
+- **`SkillsManager`** (`crates/config/src/skills.rs`): instalar skills desde repositorios GitHub, listar, eliminar.
+- Parser de `SKILL.md` con frontmatter YAML (`name`, `description`).
+- Skills instaladas se inyectan automáticamente en el system prompt del agente IA.
+- **Instalación**: `Ctrl+P` → seleccionar "Instalar skills" e ingresar `owner/repo` (ej: `vercel-labs/skills`). También desde el comando `InstallSkills { repo, skill }`.
+- **Listar**: `Ctrl+P` → "Listar skills" muestra las instaladas con nombre y descripción.
+- Las skills se almacenan en `~/.config/dca/skills/`.
+
+### Fase 8 — Optimización agentica & Temas ✅ (antes Fase 7)
 - **Timeouts HTTP**: `connect_timeout` 10 s + `timeout` 180 s en todos los proveedores — el editor ya no se congela con modelos lentos o inaccesibles
 - **Límite de iteraciones**: `MAX_TOOL_ITERATIONS = 20` en el loop agentico — evita bucles infinitos de herramientas
 - **Timeout de aprobación**: 300 s para responder al diálogo de permiso — el agente se desbloquea solo si el usuario no responde
@@ -296,6 +348,22 @@ AiAgent solicita tool
 - **Hot-reload**: cambiar el proveedor/modelo en `config.toml` surte efecto en el próximo envío
 - **Binario**: 6.1 MB (incluye reqwest + rustls)
 
+### Fase 6B — Fiabilidad de tool calling IA ✅
+- **Schemas tipados con `schemars`**: todas las herramientas de [crates/ai/src/tools](crates/ai/src/tools) generan su schema desde structs Rust y validan argumentos con `validate_tool_args<T>()`
+- **Errores estructurados**: [crates/ai/src/tools/mod.rs](crates/ai/src/tools/mod.rs) define `ToolError` serializable; [crates/ai/src/agent.rs](crates/ai/src/agent.rs) reinyecta JSON de error al contexto para autocorrección
+- **Prompt estructurado**: [crates/config/src/config.rs](crates/config/src/config.rs) ahora incluye reglas de no-uso de herramientas, formato estricto de tool calls y few-shot mínimos
+- **Pruning de contexto**: el agente recorta mensajes antiguos y tool results largos antes de cada llamada al modelo para reducir presión de contexto
+- **Versionado de buffers**: [crates/types/src/buffer.rs](crates/types/src/buffer.rs) añade `id` y `version` monotónica para preparar validación de desincronización entre editor y herramientas
+- **Harness de evaluación**: [crates/ai/tests/tool_eval.rs](crates/ai/tests/tool_eval.rs) añade casos automáticos de selección de herramientas y valida una precisión mínima del 90%
+- **Validación ejecutada**:
+  - `cargo check -p dca-ai`
+  - `cargo test -p dca-ai`
+  - `cargo test -p dca-ai tool_eval`
+
+#### Estado actual de sincronización de buffers
+
+El versionado ya existe en el modelo de buffer y `ToolCall` admite `buffer_version` y `target_buffer_id`. La comprobación completa de desincronización todavía depende de añadir una herramienta de edición sobre buffers en memoria; `write_file` sigue operando sobre sistema de archivos.
+
 ---
 
 ## Dependencias principales
@@ -308,9 +376,11 @@ AiAgent solicita tool
 | `lsp-types` | 0.97 | Tipos LSP (solo deserialización) |
 | `serde_json` | 1 | JSON-RPC wire protocol |
 | `nucleo` | 0.5 | Fuzzy matching |
-| `notify` | 6 | Watcher de archivos (hot-reload) |
+| `notify` | 6 | Watcher de archivos (hot-reload) — default features cross-platform |
 | `clap` | 4 | CLI: argumentos y subcomandos |
 | `clap_complete` | 4 | Shell completions (bash/zsh/fish) |
+| `arboard` | 3 | Clipboard (copiar/pegar) |
+| `dirs-next` | 2 | Directorios estándar del sistema |
 | `walkdir` | 2 | Árbol de archivos |
 | `color-eyre` | 0.6 | Manejo de errores |
 | `tracing` | 0.1 | Logging estructurado |
@@ -318,3 +388,5 @@ AiAgent solicita tool
 | `async-trait` | 0.1 | Traits async (`AiProvider`, `Tool`) |
 | `tokio-util` | 0.7 | `CancellationToken` para abort de stream |
 | `futures` | 0.3 | Utilidades async |
+| `schemars` | 0.8 | Generación de JSON Schema desde tipos Rust para tool calling |
+| `thiserror` | 2 | Errores estructurados serializables para herramientas |

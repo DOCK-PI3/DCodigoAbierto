@@ -1,9 +1,12 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use dca_types::{
     view_state::{FileEntry, Focus},
     CompletionEntry, DiagnosticInfo, FileLocation, TextBuffer,
 };
+
+use crate::fuzzy::FuzzyEngine;
 
 // ── Chat mode ─────────────────────────────────────────────────────────────────
 
@@ -143,6 +146,8 @@ pub struct AppState {
     pub fuzzy_selected: usize,
     /// Todos los archivos del proyecto para filtrar
     pub fuzzy_all_files: Vec<String>,
+    /// Motor de fuzzy finding reutilizable (se construye una vez)
+    pub fuzzy_engine: Option<Arc<FuzzyEngine>>,
 
     // ── Chat / IA ─────────────────────────────────────────────────────────
     pub chat_visible: bool,
@@ -246,6 +251,7 @@ impl Default for AppState {
             fuzzy_results: vec![],
             fuzzy_selected: 0,
             fuzzy_all_files: vec![],
+            fuzzy_engine: None,
             chat_visible: false,
             chat: ChatState::default(),
             model_selector_active: false,

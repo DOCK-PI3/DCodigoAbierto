@@ -17,3 +17,5 @@ async-trait  = { workspace = true }
 reqwest      = { workspace = true }
 tokio-util   = { workspace = true }
 futures      = { workspace = true }
+schemars     = "0.8"
+thiserror    = "2"

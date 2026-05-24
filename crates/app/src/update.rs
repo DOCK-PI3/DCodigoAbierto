@@ -3,7 +3,7 @@ use dca_types::view_state::Focus;
 use dca_types::LspEvent;
 
 use crate::command::Command;
-use crate::fuzzy::fuzzy_filter;
+use crate::fuzzy::{fuzzy_filter, FuzzyEngine};
 use crate::message::AppMessage;
 use crate::state::{AppState, ChatMessage, LspStatus, PendingTool};
 
@@ -35,6 +35,8 @@ pub fn update(state: &mut AppState, msg: AppMessage) -> Option<Command> {
                 .map(|e| e.path.clone())
                 .collect();
             state.file_tree = tree;
+            // Construir el motor de fuzzy finding una sola vez
+            state.fuzzy_engine = Some(std::sync::Arc::new(FuzzyEngine::new(&state.fuzzy_all_files)));
             None
         }
 
@@ -130,6 +132,17 @@ pub fn update(state: &mut AppState, msg: AppMessage) -> Option<Command> {
             state.theme_selector_active = false;
             Some(Command::ChangeTheme(name))
         }
+
+        // ── Editor ───────────────────────────────────────────────────────
+        AppMessage::FileSaved { path, success } => {
+            if success {
+                state.buffer_mut().dirty = false;
+                update_status(state);
+            } else {
+                state.status_message = format!(" Error al guardar {}", path);
+            }
+            None
+        }
     }
 }
 
@@ -177,7 +190,7 @@ fn handle_key(state: &mut AppState, code: KeyCode, mods: KeyModifiers) -> Option
     // Atajos globales ctrl
     if ctrl {
         match code {
-            KeyCode::Char('q') | KeyCode::Char('c') => {
+            KeyCode::Char('q') => {
                 state.quit = true;
                 return None;
             }
@@ -247,6 +260,46 @@ fn handle_key(state: &mut AppState, code: KeyCode, mods: KeyModifiers) -> Option
             KeyCode::Char('x') => {
                 if state.chat.streaming {
                     return Some(Command::AiAbortStream);
+                }
+                return None;
+            }
+            KeyCode::Char('c') => {
+                // Copiar línea actual al portapapeles
+                if state.focus == Focus::Editor {
+                    let line = state.buffer().current_line().to_string();
+                    let _ = arboard::Clipboard::new().and_then(|mut c| c.set_text(line));
+                    let name = state.buffer().file_name.as_deref().unwrap_or("*nuevo*");
+                    state.status_message = format!(" {name}: línea copiada al portapapeles");
+                }
+                return None;
+            }
+            KeyCode::Char('s') => {
+                if let Some(path) = state.buffer().file_name.clone() {
+                    let content = state.buffer().lines.join("\n");
+                    // No limpiar dirty aquí — se limpiará cuando FileSaved llegue con success=true
+                    update_status(state);
+                    return Some(Command::SaveBuffer { path, content });
+                }
+                return None;
+            }
+            KeyCode::Char('v') => {
+                // Pegar del portapapeles
+                if state.focus == Focus::Editor {
+                    if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                        if let Ok(text) = clipboard.get_text() {
+                            for ch in text.chars() {
+                                if ch == '\n' {
+                                    state.buffer_mut().insert_newline();
+                                } else {
+                                    state.buffer_mut().insert_char(ch);
+                                }
+                            }
+                            if let Some(path) = state.buffer().file_name.clone() {
+                                let text = state.buffer().lines.join("\n");
+                                return Some(Command::LspChange { path, text });
+                            }
+                        }
+                    }
                 }
                 return None;
             }
@@ -326,7 +379,7 @@ fn handle_editor_key(state: &mut AppState, code: KeyCode) -> Option<Command> {
     let name  = state.buffer().file_name.as_deref().unwrap_or("*nuevo*");
     let lsp   = lsp_indicator(&state.lsp_status);
     state.status_message = format!(
-        " {name}{dirty}  Ln {row}, Col {col}{lsp}  |  Ctrl+A: chat  |  Ctrl+P: fuzzy  |  Ctrl+Q: salir"
+        " {name}{dirty}  Ln {row}, Col {col}{lsp}  |  Ctrl+S: guardar  |  Ctrl+A: chat  |  Ctrl+Q: salir"
     );
 
     if state.buffer().dirty && (!was_dirty || matches!(code, KeyCode::Char(_) | KeyCode::Enter | KeyCode::Backspace)) {
@@ -414,13 +467,24 @@ fn handle_chat_key(state: &mut AppState, code: KeyCode) -> Option<Command> {
         }
         KeyCode::Left => {
             if state.chat.input_cursor > 0 {
-                state.chat.input_cursor -= 1;
+                // Retroceder al inicio del carácter UTF-8 anterior
+                let mut pos = state.chat.input_cursor - 1;
+                while pos > 0 && !state.chat.input.is_char_boundary(pos) {
+                    pos -= 1;
+                }
+                state.chat.input_cursor = pos;
             }
             None
         }
         KeyCode::Right => {
-            if state.chat.input_cursor < state.chat.input.len() {
-                state.chat.input_cursor += 1;
+            // Avanzar al inicio del siguiente carácter UTF-8
+            let mut pos = state.chat.input_cursor;
+            if pos < state.chat.input.len() {
+                pos += 1;
+                while pos < state.chat.input.len() && !state.chat.input.is_char_boundary(pos) {
+                    pos += 1;
+                }
+                state.chat.input_cursor = pos;
             }
             None
         }
@@ -668,8 +732,11 @@ fn handle_fuzzy_key(state: &mut AppState, code: KeyCode, _mods: KeyModifiers) ->
 
 fn refresh_fuzzy(state: &mut AppState) {
     state.fuzzy_selected = 0;
-    let all = state.fuzzy_all_files.clone();
-    state.fuzzy_results = fuzzy_filter(&state.fuzzy_query, &all);
+    if let Some(engine) = &state.fuzzy_engine {
+        state.fuzzy_results = engine.filter(&state.fuzzy_query);
+    } else {
+        state.fuzzy_results = fuzzy_filter(&state.fuzzy_query, &state.fuzzy_all_files);
+    }
 }
 
 // ── Eventos LSP ───────────────────────────────────────────────────────────────
@@ -795,15 +862,19 @@ fn handle_palette_key(state: &mut AppState, code: KeyCode, _mods: KeyModifiers) 
         }
         KeyCode::Backspace => {
             if state.palette_query_cursor > 0 {
-                let cur = state.palette_query_cursor;
-                state.palette_query.remove(cur - 1);
-                state.palette_query_cursor -= 1;
+                // Eliminar el carácter UTF-8 anterior, no solo el último byte
+                let mut pos = state.palette_query_cursor - 1;
+                while pos > 0 && !state.palette_query.is_char_boundary(pos) {
+                    pos -= 1;
+                }
+                state.palette_query.remove(pos);
+                state.palette_query_cursor = pos;
             }
         }
         KeyCode::Char(ch) => {
             let cur = state.palette_query_cursor;
             state.palette_query.insert(cur, ch);
-            state.palette_query_cursor += 1;
+            state.palette_query_cursor = cur + ch.len_utf8();
             state.palette_selected = 0;
         }
         _ => {}
@@ -812,7 +883,15 @@ fn handle_palette_key(state: &mut AppState, code: KeyCode, _mods: KeyModifiers) 
 }
 
 fn palette_item_count(_state: &AppState) -> usize {
-    // Acciones fijas de la palette (excluyendo separadores)
+    // Items seleccionables en build_palette_items():
+    //   0: Abrir archivo…
+    //   1: Nueva sesión de chat
+    //   2: Inyectar buffer como contexto
+    //   3: Cambiar modelo de IA…
+    //   4: Seleccionar tema…
+    //   5: Cambiar a Plan/Build
+    //   6: Abortar generación
+    //   7: Salir
     8
 }
 
@@ -828,44 +907,39 @@ fn palette_execute(state: &mut AppState) -> Option<Command> {
         return None;
     }
 
-    // Por índice de selección
+    // Índices alineados con build_palette_items() en render.rs
     match state.palette_selected {
-        0 => { open_fuzzy(state); None }          // Abrir archivo
-        1 => {                                      // Cambiar modelo
+        0 => { open_fuzzy(state); None }          // Abrir archivo…
+        1 => {                                      // Nueva sesión de chat
+            state.chat.messages.clear();
+            state.chat.tokens_generated = 0;
+            state.chat.session_name = new_session_label();
+            update_status(state);
+            None
+        }
+        2 => {                                      // Inyectar buffer como contexto
+            if state.chat_visible { Some(Command::AiInjectBuffer) } else { None }
+        }
+        3 => {                                      // Cambiar modelo de IA…
             state.model_selector_active = true;
             if state.model_selector_models.is_empty() {
                 Some(Command::AiLoadModels)
             } else { None }
         }
-        2 => {                                      // Seleccionar tema
+        4 => {                                      // Seleccionar tema…
             state.theme_selector_active = true;
             state.theme_selector_selected = 0;
             None
         }
-        3 => {                                      // Alternar modo Build/Plan
+        5 => {                                      // Cambiar a Plan/Build
             state.chat.mode = state.chat.mode.toggle();
             update_status(state);
             None
         }
-        4 => {                                      // Toggle chat
-            state.chat_visible = !state.chat_visible;
-            if state.chat_visible { state.focus = Focus::Chat; } else { state.focus = Focus::Editor; }
-            update_status(state);
-            None
-        }
-        5 => {                                      // Nueva sesión (reset chat)
-            state.chat.messages.clear();
-            state.chat.tokens_generated = 0;
-            state.chat.session_name = {
-                use std::time::{SystemTime, UNIX_EPOCH};
-                let s = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-                format!("Sesión {s}")
-            };
-            update_status(state);
-            None
-        }
-        6 => {                                      // Inyectar buffer
-            if state.chat_visible { Some(Command::AiInjectBuffer) } else { None }
+        6 => {                                      // Abortar generación
+            if state.chat.streaming {
+                Some(Command::AiAbortStream)
+            } else { None }
         }
         7 => {                                      // Salir
             state.quit = true;
@@ -873,4 +947,10 @@ fn palette_execute(state: &mut AppState) -> Option<Command> {
         }
         _ => None,
     }
+}
+
+fn new_session_label() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let s = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    format!("Sesión {s}")
 }

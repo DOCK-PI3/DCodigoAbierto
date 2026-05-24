@@ -2,6 +2,13 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::cursor::Cursor;
 
+fn next_buffer_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+    format!("buffer-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed))
+}
+
 /// Buffer de texto editable.
 ///
 /// Almacena el contenido como `Vec<String>` (una entrada por línea).
@@ -9,6 +16,8 @@ use crate::cursor::Cursor;
 /// la lógica separada del renderizado.
 #[derive(Debug, Clone)]
 pub struct TextBuffer {
+    /// Identificador estable del buffer durante su vida en memoria.
+    pub id: String,
     /// Líneas de texto (siempre al menos una)
     pub lines: Vec<String>,
     /// Posición actual del cursor
@@ -21,17 +30,21 @@ pub struct TextBuffer {
     pub file_name: Option<String>,
     /// Indica si hay cambios sin guardar
     pub dirty: bool,
+    /// Version monotona para detectar desincronizacion entre IA y editor.
+    pub version: u64,
 }
 
 impl Default for TextBuffer {
     fn default() -> Self {
         Self {
+            id: next_buffer_id(),
             lines: vec![String::new()],
             cursor: Cursor::default(),
             scroll_row: 0,
             scroll_col: 0,
             file_name: None,
             dirty: false,
+            version: 0,
         }
     }
 }
@@ -121,7 +134,7 @@ impl TextBuffer {
         let line = &mut self.lines[self.cursor.row];
         line.insert(col, ch);
         self.cursor.col += ch.len_utf8();
-        self.dirty = true;
+        self.mark_dirty();
     }
 
     pub fn insert_newline(&mut self) {
@@ -130,7 +143,7 @@ impl TextBuffer {
         self.cursor.row += 1;
         self.cursor.col = 0;
         self.lines.insert(self.cursor.row, rest);
-        self.dirty = true;
+        self.mark_dirty();
     }
 
     pub fn delete_char_before(&mut self) {
@@ -138,14 +151,14 @@ impl TextBuffer {
             let prev = prev_char_boundary(&self.lines[self.cursor.row], self.cursor.col);
             self.lines[self.cursor.row].remove(prev);
             self.cursor.col = prev;
-            self.dirty = true;
+            self.mark_dirty();
         } else if self.cursor.row > 0 {
             // unir con la línea anterior
             let current = self.lines.remove(self.cursor.row);
             self.cursor.row -= 1;
             self.cursor.col = self.lines[self.cursor.row].len();
             self.lines[self.cursor.row].push_str(&current);
-            self.dirty = true;
+            self.mark_dirty();
         }
     }
 
@@ -168,6 +181,11 @@ impl TextBuffer {
         if self.cursor.col > max {
             self.cursor.col = max;
         }
+    }
+
+    fn mark_dirty(&mut self) {
+        self.dirty = true;
+        self.version = self.version.saturating_add(1);
     }
 }
 

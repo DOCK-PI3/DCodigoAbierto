@@ -10,11 +10,12 @@ use crate::provider::{AiEvent, AiMessage, AiProvider, AiRole, ToolCall, ToolDef}
 pub struct AnthropicProvider {
     base_url: String,
     api_key: String,
+    default_model: String,
     client: reqwest::Client,
 }
 
 impl AnthropicProvider {
-    pub fn new(base_url: &str, api_key: &str) -> Self {
+    pub fn new(base_url: &str, api_key: &str, default_model: &str) -> Self {
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .build()
@@ -22,6 +23,7 @@ impl AnthropicProvider {
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key: api_key.to_string(),
+            default_model: default_model.to_string(),
             client,
         }
     }
@@ -163,7 +165,7 @@ impl AiProvider for AnthropicProvider {
         let (system, msgs) = build_messages(messages);
 
         let mut body = serde_json::json!({
-            "model": "claude-opus-4-5",
+            "model": self.default_model,
             "messages": msgs,
             "max_tokens": max_tokens,
             "stream": true,
@@ -250,6 +252,8 @@ impl AiProvider for AnthropicProvider {
                                         id,
                                         name: name.clone(),
                                         arguments: args,
+                                        buffer_version: None,
+                                        target_buffer_id: None,
                                     }));
                                 }
                             }

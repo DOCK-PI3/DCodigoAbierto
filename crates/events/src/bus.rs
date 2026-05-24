@@ -52,6 +52,10 @@ pub enum AppMessage {
     // ── Themes ────────────────────────────────────────────────────────────
     /// El usuario seleccionó un tema por nombre
     ThemeSelected(String),
+
+    // ── Editor ────────────────────────────────────────────────────────────
+    /// Resultado de guardar un archivo. `success = true` si se escribió correctamente.
+    FileSaved { path: String, success: bool },
 }
 
 /// Alias del lado emisor del canal de mensajes.

@@ -22,6 +22,10 @@ pub struct ToolCall {
     pub id: String,
     pub name: String,
     pub arguments: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub buffer_version: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_buffer_id: Option<String>,
 }
 
 /// Resultado de ejecutar una herramienta
