@@ -19,32 +19,51 @@ pub struct TabBarWidget<'a> {
 
 impl<'a> Widget for TabBarWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        if area.height == 0 { return; }
+        if area.height == 0 {
+            return;
+        }
 
-        let spans: Vec<Span> = self.tabs.iter().enumerate().flat_map(|(i, tab)| {
-            let dirty = if tab.dirty { "+" } else { "" };
-            let label = format!(" {}{} ", tab.name, dirty);
-            if i == self.active {
-                vec![
-                    Span::styled(
-                        label,
-                        Style::default()
-                            .fg(self.palette.bg)
-                            .bg(self.palette.accent)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled("│", Style::default().fg(self.palette.fg_dim).bg(self.palette.bg_secondary)),
-                ]
-            } else {
-                vec![
-                    Span::styled(
-                        label,
-                        Style::default().fg(self.palette.fg_dim).bg(self.palette.bg_secondary),
-                    ),
-                    Span::styled("│", Style::default().fg(self.palette.fg_dim).bg(self.palette.bg_secondary)),
-                ]
-            }
-        }).collect();
+        let spans: Vec<Span> = self
+            .tabs
+            .iter()
+            .enumerate()
+            .flat_map(|(i, tab)| {
+                let dirty = if tab.dirty { "+" } else { "" };
+                let label = format!(" {}{} ", tab.name, dirty);
+                if i == self.active {
+                    vec![
+                        Span::styled(
+                            label,
+                            Style::default()
+                                .fg(self.palette.bg)
+                                .bg(self.palette.accent)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            "│",
+                            Style::default()
+                                .fg(self.palette.fg_dim)
+                                .bg(self.palette.bg_secondary),
+                        ),
+                    ]
+                } else {
+                    vec![
+                        Span::styled(
+                            label,
+                            Style::default()
+                                .fg(self.palette.fg_dim)
+                                .bg(self.palette.bg_secondary),
+                        ),
+                        Span::styled(
+                            "│",
+                            Style::default()
+                                .fg(self.palette.fg_dim)
+                                .bg(self.palette.bg_secondary),
+                        ),
+                    ]
+                }
+            })
+            .collect();
 
         Paragraph::new(Line::from(spans))
             .style(Style::default().bg(self.palette.bg_secondary))

@@ -1,7 +1,7 @@
 use crossterm::event::KeyEvent;
+use dca_ai::provider::AiMessage;
 use dca_config::AppConfig;
 use dca_types::{view_state::FileEntry, LspEvent};
-use dca_ai::provider::AiMessage;
 use tokio::sync::mpsc;
 
 /// Todos los mensajes que puede recibir el loop principal de la aplicación.
@@ -18,7 +18,7 @@ pub enum AppMessage {
     /// Evento proveniente del cliente LSP
     Lsp(LspEvent),
     /// Config recargada por hot-reload
-    ConfigReload(AppConfig),
+    ConfigReload(Box<AppConfig>),
     /// Árbol de archivos cargado de forma lazy al inicio
     FileTreeLoaded(Vec<FileEntry>),
 
@@ -40,14 +40,13 @@ pub enum AppMessage {
     /// El usuario denegó la ejecución de la herramienta `id`
     AiToolDenied(String),
     /// Una herramienta se ejecutó; muestra nombre y resultado (truncado)
-    AiToolResult {
-        name: String,
-        result: String,
-    },
+    AiToolResult { name: String, result: String },
     /// Lista de modelos disponibles obtenida del proveedor
     AiModelsLoaded(Vec<String>),
     /// El agente terminó; sincroniza el historial al main loop
     AiSessionUpdate(Vec<AiMessage>),
+    /// Mensaje operativo visible para el usuario (skills, tareas auxiliares, etc.)
+    Notice(String),
 
     // ── Themes ────────────────────────────────────────────────────────────
     /// El usuario seleccionó un tema por nombre

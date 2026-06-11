@@ -68,7 +68,8 @@ impl AiAgent {
 
     /// Herramientas que requieren aprobación del usuario (write_file, shell).
     pub fn tools_requiring_approval(&self) -> Vec<String> {
-        self.tools.iter()
+        self.tools
+            .iter()
             .filter(|t| t.requires_approval())
             .map(|t| t.definition().name)
             .collect()
@@ -120,7 +121,12 @@ impl AiAgent {
                 let pruned_context = prune_context(&context, &prune_config);
                 let (inner_tx, mut inner_rx) = unbounded_channel::<AiEvent>();
                 let stream_fut = self.provider.chat_stream(
-                    &pruned_context, &defs, self.max_tokens, self.temperature, self.top_p, inner_tx,
+                    &pruned_context,
+                    &defs,
+                    self.max_tokens,
+                    self.temperature,
+                    self.top_p,
+                    inner_tx,
                 );
                 tokio::pin!(stream_fut);
 
@@ -138,7 +144,12 @@ impl AiAgent {
                     if stream_finished {
                         // Drenar eventos residuales sin bloquear
                         while let Ok(ev) = inner_rx.try_recv() {
-                            forward_event(ev, &event_tx, &mut assistant_text, &mut tool_calls_this_turn);
+                            forward_event(
+                                ev,
+                                &event_tx,
+                                &mut assistant_text,
+                                &mut tool_calls_this_turn,
+                            );
                         }
                         break;
                     }
@@ -188,7 +199,9 @@ impl AiAgent {
             // Ejecutar herramientas
             tool_iteration += 1;
             for tc in &tool_calls_this_turn {
-                if token.is_cancelled() { break; }
+                if token.is_cancelled() {
+                    break;
+                }
 
                 // Buscar la herramienta
                 let tool = self.tools.iter().find(|t| t.definition().name == tc.name);
@@ -205,7 +218,8 @@ impl AiAgent {
                     let decision = timeout(
                         std::time::Duration::from_secs(APPROVAL_TIMEOUT_SECS),
                         approval_rx.recv(),
-                    ).await;
+                    )
+                    .await;
                     match decision {
                         Err(_) => {
                             let result = "Timeout esperando aprobación del usuario.";
@@ -247,7 +261,7 @@ impl AiAgent {
 
                 // Notificar al UI el resultado de la herramienta
                 let preview = if result.len() > 300 {
-                    format!("{}…", &result[..300])
+                    format!("{}...", truncate_at_char_boundary(&result, 300))
                 } else {
                     result.clone()
                 };
@@ -341,6 +355,14 @@ fn push_tool_result_to_context(
     let msg = AiMessage::tool_result(call_id, result);
     context.push(msg.clone());
     session.push_tool_result(call_id, result);
+}
+
+fn truncate_at_char_boundary(text: &str, max_bytes: usize) -> &str {
+    let mut end = max_bytes.min(text.len());
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
 }
 
 /// Decisión del usuario sobre una herramienta peligrosa.

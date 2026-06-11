@@ -373,7 +373,12 @@ fn parse_diagnostics(params: &Value) -> Vec<DiagnosticInfo> {
                 Some(3) => DiagnosticSeverity::Info,
                 _ => DiagnosticSeverity::Hint,
             };
-            Some(DiagnosticInfo { line, col, message, severity })
+            Some(DiagnosticInfo {
+                line,
+                col,
+                message,
+                severity,
+            })
         })
         .collect()
 }
@@ -402,7 +407,12 @@ fn parse_completions(val: &Value) -> Vec<CompletionEntry> {
                 .get("insertText")
                 .and_then(|v| v.as_str())
                 .map(String::from);
-            Some(CompletionEntry { label, detail, kind, insert_text })
+            Some(CompletionEntry {
+                label,
+                detail,
+                kind,
+                insert_text,
+            })
         })
         .collect()
 }
@@ -479,15 +489,22 @@ fn parse_locations(val: &Value) -> Vec<FileLocation> {
 
 fn location_from_value(loc: &Value) -> Option<FileLocation> {
     // Soporta `Location` (uri+range) y `LocationLink` (targetUri+targetRange)
-    let uri = loc.get("uri")
+    let uri = loc
+        .get("uri")
         .or_else(|| loc.get("targetUri"))
         .and_then(|v| v.as_str())?;
-    let range = loc.get("range")
+    let range = loc
+        .get("range")
         .or_else(|| loc.get("targetSelectionRange"))
         .or_else(|| loc.get("targetRange"))?;
     let start = range.get("start")?;
     let line = start.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-    let col  = start.get("character").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+    let col = start.get("character").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
     let path = uri_to_path(uri);
-    Some(FileLocation { path, line, col, preview: None })
+    Some(FileLocation {
+        path,
+        line,
+        col,
+        preview: None,
+    })
 }

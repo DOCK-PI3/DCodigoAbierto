@@ -91,7 +91,9 @@ where
                 "provided_args": args,
                 "expected_schema": schema_value,
             })),
-            hint: Some("Corrige los argumentos para que coincidan con el schema esperado".to_string()),
+            hint: Some(
+                "Corrige los argumentos para que coincidan con el schema esperado".to_string(),
+            ),
         }
         .into()
     })
@@ -110,7 +112,9 @@ where
 pub trait Tool: Send + Sync {
     fn definition(&self) -> ToolDef;
     /// `true` → requiere confirmación del usuario antes de ejecutar
-    fn requires_approval(&self) -> bool { false }
+    fn requires_approval(&self) -> bool {
+        false
+    }
     async fn execute(&self, args: &serde_json::Value) -> Result<String>;
 }
 
@@ -137,8 +141,5 @@ pub fn all_tools(web_enabled: bool) -> Vec<Box<dyn Tool>> {
 
 /// Herramientas del modo Plan: búsqueda web únicamente.
 pub fn plan_tools() -> Vec<Box<dyn Tool>> {
-    vec![
-        Box::new(WebSearchTool),
-        Box::new(WebFetchTool),
-    ]
+    vec![Box::new(WebSearchTool), Box::new(WebFetchTool)]
 }

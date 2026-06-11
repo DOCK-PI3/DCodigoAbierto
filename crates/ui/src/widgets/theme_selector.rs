@@ -33,34 +33,44 @@ impl<'a> Widget for ThemeSelectorWidget<'a> {
         let height = (self.themes.len() as u16 + 2).min(20).min(area.height);
         let x = area.x + (area.width.saturating_sub(width)) / 2;
         let y = area.y + (area.height.saturating_sub(height)) / 2;
-        let popup = Rect { x, y, width, height };
+        let popup = Rect {
+            x,
+            y,
+            width,
+            height,
+        };
 
         Clear.render(popup, buf);
 
-        let items: Vec<ListItem> = self.themes.iter().enumerate().map(|(i, (name, accent, bg))| {
-            let acc_color = hex_to_color(accent);
-            let bg_color = hex_to_color(bg);
+        let items: Vec<ListItem> = self
+            .themes
+            .iter()
+            .enumerate()
+            .map(|(i, (name, accent, bg))| {
+                let acc_color = hex_to_color(accent);
+                let bg_color = hex_to_color(bg);
 
-            if i == self.selected {
-                ListItem::new(Line::from(vec![
-                    Span::styled(" ▶ ", Style::default().fg(Color::Black).bg(acc_color)),
-                    Span::styled(
-                        format!("{name:<28}"),
-                        Style::default().fg(Color::Black).bg(acc_color).add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled("  ██ ", Style::default().fg(acc_color).bg(bg_color)),
-                ]))
-            } else {
-                ListItem::new(Line::from(vec![
-                    Span::styled("   ", Style::default()),
-                    Span::styled(
-                        format!("{name:<28}"),
-                        Style::default().fg(Color::White),
-                    ),
-                    Span::styled("  ██ ", Style::default().fg(acc_color)),
-                ]))
-            }
-        }).collect();
+                if i == self.selected {
+                    ListItem::new(Line::from(vec![
+                        Span::styled(" ▶ ", Style::default().fg(Color::Black).bg(acc_color)),
+                        Span::styled(
+                            format!("{name:<28}"),
+                            Style::default()
+                                .fg(Color::Black)
+                                .bg(acc_color)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled("  ██ ", Style::default().fg(acc_color).bg(bg_color)),
+                    ]))
+                } else {
+                    ListItem::new(Line::from(vec![
+                        Span::styled("   ", Style::default()),
+                        Span::styled(format!("{name:<28}"), Style::default().fg(Color::White)),
+                        Span::styled("  ██ ", Style::default().fg(acc_color)),
+                    ]))
+                }
+            })
+            .collect();
 
         let block = Block::default()
             .borders(Borders::ALL)

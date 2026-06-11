@@ -19,15 +19,15 @@ pub struct StatusbarWidget<'a> {
     pub chat_mode_label: &'a str,
     pub chat_mode_is_build: bool,
     pub active_model: &'a str,
-    pub home_mode: bool,   // true si no hay archivo abierto
+    pub home_mode: bool, // true si no hay archivo abierto
 }
 
 impl<'a> Widget for StatusbarWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let bg   = self.palette.bg_secondary;
-        let fg   = self.palette.fg;
-        let acc  = self.palette.accent;
-        let dim  = self.palette.fg_dim;
+        let bg = self.palette.bg_secondary;
+        let fg = self.palette.fg;
+        let acc = self.palette.accent;
+        let dim = self.palette.fg_dim;
         let warn = self.palette.warn;
 
         // Fondo sólido
@@ -38,7 +38,10 @@ impl<'a> Widget for StatusbarWidget<'a> {
         if self.streaming {
             // ── Modo streaming ────────────────────────────────────────────
             let left = Line::from(vec![
-                Span::styled("●●● ", Style::default().fg(warn).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "●●● ",
+                    Style::default().fg(warn).add_modifier(Modifier::BOLD),
+                ),
                 Span::styled("generando… ", Style::default().fg(fg)),
                 Span::styled("ctrl+x interrumpir", Style::default().fg(dim)),
             ]);
@@ -61,7 +64,10 @@ impl<'a> Widget for StatusbarWidget<'a> {
             let mode_color = if self.chat_mode_is_build { warn } else { acc };
 
             let left = Line::from(vec![
-                Span::styled(self.chat_mode_label, Style::default().fg(mode_color).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    self.chat_mode_label,
+                    Style::default().fg(mode_color).add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" · ", Style::default().fg(dim)),
                 Span::styled(self.active_model, Style::default().fg(fg)),
             ]);

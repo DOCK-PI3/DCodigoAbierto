@@ -12,10 +12,7 @@ use crate::AppConfig;
 /// una señal `true` al canal cuando se detecta un cambio.
 ///
 /// El canal es `UnboundedSender<AppConfig>` — envía la config recargada directamente.
-pub fn spawn_config_watcher(
-    config_path: PathBuf,
-    tx: UnboundedSender<AppConfig>,
-) {
+pub fn spawn_config_watcher(config_path: PathBuf, tx: UnboundedSender<AppConfig>) {
     std::thread::spawn(move || {
         let (std_tx, std_rx) = std_mpsc::channel::<notify::Result<Event>>();
 

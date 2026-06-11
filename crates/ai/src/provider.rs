@@ -52,13 +52,28 @@ pub struct AiMessage {
 
 impl AiMessage {
     pub fn system(content: impl Into<String>) -> Self {
-        Self { role: AiRole::System, content: content.into(), tool_calls: vec![], tool_result: None }
+        Self {
+            role: AiRole::System,
+            content: content.into(),
+            tool_calls: vec![],
+            tool_result: None,
+        }
     }
     pub fn user(content: impl Into<String>) -> Self {
-        Self { role: AiRole::User, content: content.into(), tool_calls: vec![], tool_result: None }
+        Self {
+            role: AiRole::User,
+            content: content.into(),
+            tool_calls: vec![],
+            tool_result: None,
+        }
     }
     pub fn assistant(content: impl Into<String>) -> Self {
-        Self { role: AiRole::Assistant, content: content.into(), tool_calls: vec![], tool_result: None }
+        Self {
+            role: AiRole::Assistant,
+            content: content.into(),
+            tool_calls: vec![],
+            tool_result: None,
+        }
     }
     pub fn tool_result(call_id: impl Into<String>, content: impl Into<String>) -> Self {
         let call_id = call_id.into();
@@ -67,7 +82,10 @@ impl AiMessage {
             role: AiRole::Tool,
             content: content_str.clone(),
             tool_calls: vec![],
-            tool_result: Some(ToolResult { call_id, content: content_str }),
+            tool_result: Some(ToolResult {
+                call_id,
+                content: content_str,
+            }),
         }
     }
 }

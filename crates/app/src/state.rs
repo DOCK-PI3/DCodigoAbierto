@@ -23,14 +23,14 @@ impl ChatMode {
     pub fn label(&self) -> &'static str {
         match self {
             ChatMode::Build => "Build",
-            ChatMode::Plan  => "Plan",
+            ChatMode::Plan => "Plan",
         }
     }
 
     pub fn toggle(self) -> Self {
         match self {
             ChatMode::Build => ChatMode::Plan,
-            ChatMode::Plan  => ChatMode::Build,
+            ChatMode::Plan => ChatMode::Build,
         }
     }
 }
@@ -142,7 +142,7 @@ pub struct AppState {
     // ── Fuzzy Finder ─────────────────────────────────────────────────────
     pub fuzzy_active: bool,
     pub fuzzy_query: String,
-    pub fuzzy_results: Vec<String>,   // rutas filtradas
+    pub fuzzy_results: Vec<String>, // rutas filtradas
     pub fuzzy_selected: usize,
     /// Todos los archivos del proyecto para filtrar
     pub fuzzy_all_files: Vec<String>,
@@ -183,18 +183,21 @@ impl AppState {
 
     /// Abre un archivo en un nuevo buffer (o activa si ya está abierto).
     pub fn open_buffer(&mut self, path: &str, content: &str) {
+        let full_path = std::path::Path::new(path)
+            .canonicalize()
+            .unwrap_or_else(|_| std::path::PathBuf::from(path))
+            .to_string_lossy()
+            .to_string();
         // ¿Ya está abierto?
-        if let Some(idx) = self.buffers.iter().position(|b| {
-            b.file_name.as_deref() == Some(path)
-        }) {
+        if let Some(idx) = self
+            .buffers
+            .iter()
+            .position(|b| b.file_name.as_deref() == Some(full_path.as_str()))
+        {
             self.active_buffer = idx;
         } else {
-            let name = std::path::Path::new(path)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(path)
-                .to_owned();
-            self.buffers.push(TextBuffer::from_str(content, Some(name)));
+            self.buffers
+                .push(TextBuffer::from_str(content, Some(full_path)));
             self.active_buffer = self.buffers.len() - 1;
         }
     }

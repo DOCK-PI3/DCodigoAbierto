@@ -1,9 +1,9 @@
+use super::{tool_parameters_schema, validate_tool_args, Tool};
+use crate::provider::ToolDef;
 use async_trait::async_trait;
-use color_eyre::{Result, eyre::eyre};
+use color_eyre::{eyre::eyre, Result};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use crate::provider::ToolDef;
-use super::{Tool, tool_parameters_schema, validate_tool_args};
 
 // ── WebFetchTool ──────────────────────────────────────────────────────────────
 
@@ -23,7 +23,8 @@ impl Tool for WebFetchTool {
             name: "web_fetch".into(),
             description: "Descarga una URL y devuelve el texto limpio (sin HTML). \
                           Úsalo para leer documentación, artículos o páginas web. \
-                          Para BUSCAR en internet usa web_search en su lugar.".into(),
+                          Para BUSCAR en internet usa web_search en su lugar."
+                .into(),
             parameters: tool_parameters_schema::<WebFetchArgs>(),
         }
     }
@@ -88,15 +89,18 @@ impl Tool for WebSearchTool {
 
 async fn fetch_and_clean(url: &str) -> Result<String> {
     let client = build_client()?;
-    
+
     // Reintento único en caso de error transitorio
     let resp = match client.get(url).send().await {
         Ok(r) => r,
         Err(e) => {
             // Un reintento después de 500ms
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            client.get(url).send().await
-                .map_err(|e2| color_eyre::eyre::eyre!("Error al conectar con {url}: {e2} (reintento fallido tras: {e})"))?
+            client.get(url).send().await.map_err(|e2| {
+                color_eyre::eyre::eyre!(
+                    "Error al conectar con {url}: {e2} (reintento fallido tras: {e})"
+                )
+            })?
         }
     };
 
@@ -110,17 +114,29 @@ async fn fetch_and_clean(url: &str) -> Result<String> {
             500..=599 => "Error interno del servidor. Intenta más tarde.",
             _ => "Verifica que la URL sea correcta.",
         };
-        return Err(color_eyre::eyre::eyre!("HTTP {} para {url}: {hint}", status));
+        return Err(color_eyre::eyre::eyre!(
+            "HTTP {} para {url}: {hint}",
+            status
+        ));
     }
 
     // Verificar Content-Type para no descargar binarios grandes
-    if let Some(ct) = resp.headers().get("content-type").and_then(|v| v.to_str().ok()) {
-        if ct.contains("video/") || ct.contains("audio/") || ct.contains("application/octet-stream") {
-            return Err(color_eyre::eyre::eyre!("Tipo de contenido no soportado ({ct}) para {url}"));
+    if let Some(ct) = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+    {
+        if ct.contains("video/") || ct.contains("audio/") || ct.contains("application/octet-stream")
+        {
+            return Err(color_eyre::eyre::eyre!(
+                "Tipo de contenido no soportado ({ct}) para {url}"
+            ));
         }
     }
 
-    let bytes = resp.bytes().await
+    let bytes = resp
+        .bytes()
+        .await
         .map_err(|e| color_eyre::eyre::eyre!("Error leyendo respuesta de {url}: {e}"))?;
 
     if bytes.is_empty() {
@@ -132,15 +148,23 @@ async fn fetch_and_clean(url: &str) -> Result<String> {
     let text = tokio::task::spawn_blocking(move || {
         let raw = String::from_utf8_lossy(&bytes);
         let is_html = raw.contains("<html") || raw.contains("<!DOCTYPE") || raw.contains("<body");
-        let text = if is_html { html_to_text(&raw) } else { raw.into_owned() };
+        let text = if is_html {
+            html_to_text(&raw)
+        } else {
+            raw.into_owned()
+        };
 
         const MAX: usize = 40 * 1024;
         if text.len() > MAX {
-            format!("{}\n\n[Contenido truncado a 40 KB — URL: {url_owned}]", &text[..MAX])
+            format!(
+                "{}\n\n[Contenido truncado a 40 KB — URL: {url_owned}]",
+                &text[..MAX]
+            )
         } else {
             format!("{text}\n\n[Fuente: {url_owned}]")
         }
-    }).await
+    })
+    .await
     .map_err(|e| color_eyre::eyre::eyre!("Error en spawn_blocking: {e}"))?;
 
     Ok(text)
@@ -152,12 +176,17 @@ async fn ddg_search(query: &str, max: usize) -> Result<String> {
     let search_url = format!("https://lite.duckduckgo.com/lite/?q={encoded}");
 
     let client = build_client()?;
-    let resp = client.get(&search_url)
-        .send().await
+    let resp = client
+        .get(&search_url)
+        .send()
+        .await
         .map_err(|e| color_eyre::eyre::eyre!("Error buscando en DuckDuckGo: {e}"))?;
 
     if !resp.status().is_success() {
-        return Err(color_eyre::eyre::eyre!("DuckDuckGo devolvió HTTP {}", resp.status()));
+        return Err(color_eyre::eyre::eyre!(
+            "DuckDuckGo devolvió HTTP {}",
+            resp.status()
+        ));
     }
 
     let bytes = resp.bytes().await?;
@@ -169,7 +198,8 @@ async fn ddg_search(query: &str, max: usize) -> Result<String> {
         let results = parse_ddg_lite(&html, max);
         if results.is_empty() {
             let text = html_to_text(&html);
-            let excerpt: String = text.lines()
+            let excerpt: String = text
+                .lines()
                 .filter(|l| !l.trim().is_empty())
                 .take(40)
                 .collect::<Vec<_>>()
@@ -178,7 +208,8 @@ async fn ddg_search(query: &str, max: usize) -> Result<String> {
         } else {
             format!("Resultados de búsqueda para «{query_owned}»:\n\n{results}")
         }
-    }).await
+    })
+    .await
     .map_err(|e| color_eyre::eyre::eyre!("Error en spawn_blocking: {e}"))?;
 
     Ok(result)
@@ -194,20 +225,26 @@ fn parse_ddg_lite(html: &str, max: usize) -> String {
     let mut pos = 0;
     while results.len() < max {
         // Buscar href dentro de result-link
-        let Some(link_start) = html[pos..].find("class=\"result-link\"") else { break };
+        let Some(link_start) = html[pos..].find("class=\"result-link\"") else {
+            break;
+        };
         let abs = pos + link_start;
 
         // Retroceder para encontrar el href en el mismo <a>
         let tag_start = html[..abs].rfind('<').unwrap_or(abs);
-        let tag_end = html[abs..].find('>').map(|p| abs + p + 1).unwrap_or(abs + 1);
+        let tag_end = html[abs..]
+            .find('>')
+            .map(|p| abs + p + 1)
+            .unwrap_or(abs + 1);
         let tag = &html[tag_start..tag_end];
 
         let url = extract_attr(tag, "href").unwrap_or_default();
         // DDG lite wraps URLs as /lite/?uddg=<encoded>
         let real_url = if url.contains("uddg=") {
-            url.split("uddg=").nth(1)
+            url.split("uddg=")
+                .nth(1)
                 .and_then(|s| s.split('&').next())
-                .map(|s| url_decode(s))
+                .map(url_decode)
                 .unwrap_or(url.clone())
         } else {
             url.clone()
@@ -215,7 +252,10 @@ fn parse_ddg_lite(html: &str, max: usize) -> String {
 
         // Título: texto dentro del <a>
         let title = if tag_end < html.len() {
-            let close = html[tag_end..].find("</a>").map(|p| tag_end + p).unwrap_or(tag_end);
+            let close = html[tag_end..]
+                .find("</a>")
+                .map(|p| tag_end + p)
+                .unwrap_or(tag_end);
             strip_tags(&html[tag_end..close])
         } else {
             String::new()
@@ -225,8 +265,14 @@ fn parse_ddg_lite(html: &str, max: usize) -> String {
         let snippet = if tag_end < html.len() {
             if let Some(snip_start) = html[tag_end..].find("result-snippet") {
                 let abs_snip = tag_end + snip_start;
-                let cell_content_start = html[abs_snip..].find('>').map(|p| abs_snip + p + 1).unwrap_or(abs_snip);
-                let cell_content_end  = html[cell_content_start..].find("</td>").map(|p| cell_content_start + p).unwrap_or(cell_content_start + 200);
+                let cell_content_start = html[abs_snip..]
+                    .find('>')
+                    .map(|p| abs_snip + p + 1)
+                    .unwrap_or(abs_snip);
+                let cell_content_end = html[cell_content_start..]
+                    .find("</td>")
+                    .map(|p| cell_content_start + p)
+                    .unwrap_or(cell_content_start + 200);
                 strip_tags(&html[cell_content_start..cell_content_end.min(html.len())])
             } else {
                 String::new()
@@ -254,11 +300,11 @@ fn parse_ddg_lite(html: &str, max: usize) -> String {
 fn html_to_text(html: &str) -> String {
     // 1. Eliminar bloques <script> y <style> completos
     let no_script = remove_tag_blocks(html, "script");
-    let no_style  = remove_tag_blocks(&no_script, "style");
+    let no_style = remove_tag_blocks(&no_script, "style");
     let no_noscript = remove_tag_blocks(&no_style, "noscript");
-    let no_nav    = remove_tag_blocks(&no_noscript, "nav");
+    let no_nav = remove_tag_blocks(&no_noscript, "nav");
     let no_footer = remove_tag_blocks(&no_nav, "footer");
-    let no_head   = remove_tag_blocks(&no_footer, "head");
+    let no_head = remove_tag_blocks(&no_footer, "head");
 
     // 2. Convertir algunos tags en saltos de línea
     let with_newlines = no_head
@@ -304,9 +350,9 @@ fn html_to_text(html: &str) -> String {
 
 /// Elimina todos los bloques `<tag ...>...</tag>` (case-insensitive, no anidados).
 fn remove_tag_blocks(html: &str, tag: &str) -> String {
-    let open_lower  = format!("<{tag}");
+    let open_lower = format!("<{tag}");
     let close_lower = format!("</{tag}>");
-    let open_upper  = format!("<{}", tag.to_uppercase());
+    let open_upper = format!("<{}", tag.to_uppercase());
 
     let mut result = String::with_capacity(html.len());
     let mut pos = 0;
@@ -357,16 +403,16 @@ fn strip_tags(html: &str) -> String {
 }
 
 fn decode_entities(text: &str) -> String {
-    text.replace("&amp;",  "&")
-        .replace("&lt;",   "<")
-        .replace("&gt;",   ">")
+    text.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
         .replace("&quot;", "\"")
-        .replace("&#39;",  "'")
+        .replace("&#39;", "'")
         .replace("&apos;", "'")
         .replace("&nbsp;", " ")
         .replace("&mdash;", "—")
         .replace("&ndash;", "–")
-        .replace("&hellip;","…")
+        .replace("&hellip;", "…")
         .replace("&laquo;", "«")
         .replace("&raquo;", "»")
         .replace("&#x27;", "'")
@@ -424,4 +470,3 @@ fn build_client() -> Result<reqwest::Client> {
         .redirect(reqwest::redirect::Policy::limited(5))
         .build()?)
 }
-

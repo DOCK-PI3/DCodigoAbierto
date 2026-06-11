@@ -1,9 +1,9 @@
+use super::{tool_parameters_schema, validate_tool_args, Tool, ToolError};
+use crate::provider::ToolDef;
 use async_trait::async_trait;
 use color_eyre::Result;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use crate::provider::ToolDef;
-use super::{Tool, ToolError, tool_parameters_schema, validate_tool_args};
 
 pub struct ReadFileTool;
 
@@ -34,6 +34,16 @@ impl Tool for ReadFileTool {
         let args: ReadFileArgs = validate_tool_args("read_file", args)?;
 
         if let (Some(start_line), Some(end_line)) = (args.start_line, args.end_line) {
+            if start_line == 0 || end_line == 0 {
+                return Err(ToolError::InvalidRange {
+                    message: "read_file: las lineas son 1-indexed; usa 1 o superior".to_string(),
+                    start: start_line,
+                    end: end_line,
+                    max_available: 0,
+                    hint: Some("Usa start_line/end_line empezando en 1".to_string()),
+                }
+                .into());
+            }
             if start_line > end_line {
                 return Err(ToolError::InvalidRange {
                     message: format!(
@@ -48,18 +58,36 @@ impl Tool for ReadFileTool {
                 .into());
             }
         }
+        if args.start_line == Some(0) || args.end_line == Some(0) {
+            return Err(ToolError::InvalidRange {
+                message: "read_file: las lineas son 1-indexed; usa 1 o superior".to_string(),
+                start: args.start_line.unwrap_or(1),
+                end: args
+                    .end_line
+                    .unwrap_or_else(|| args.start_line.unwrap_or(1)),
+                max_available: 0,
+                hint: Some("Usa start_line/end_line empezando en 1".to_string()),
+            }
+            .into());
+        }
 
-        let content = tokio::fs::read_to_string(&args.path).await.map_err(|error| {
-            match error.kind() {
+        let content = tokio::fs::read_to_string(&args.path)
+            .await
+            .map_err(|error| match error.kind() {
                 std::io::ErrorKind::NotFound => ToolError::FileNotFound {
                     message: format!("read_file: no existe el archivo '{}'", args.path),
                     attempted_path: args.path.clone(),
-                    hint: Some("Verifica la ruta o usa glob/list_dir para encontrar el archivo".to_string()),
+                    hint: Some(
+                        "Verifica la ruta o usa glob/list_dir para encontrar el archivo"
+                            .to_string(),
+                    ),
                 },
                 std::io::ErrorKind::PermissionDenied => ToolError::PermissionDenied {
                     message: format!("read_file: permiso denegado para '{}'", args.path),
                     path: args.path.clone(),
-                    hint: Some("Intenta con otro archivo o revisa los permisos del sistema".to_string()),
+                    hint: Some(
+                        "Intenta con otro archivo o revisa los permisos del sistema".to_string(),
+                    ),
                 },
                 _ => ToolError::Generic {
                     message: format!("read_file: no se pudo leer '{}': {}", args.path, error),
@@ -67,14 +95,15 @@ impl Tool for ReadFileTool {
                     context: Some(serde_json::json!({ "path": args.path })),
                     hint: Some("Revisa que el archivo exista y sea texto legible".to_string()),
                 },
-            }
-        })?;
+            })?;
 
         let lines: Vec<&str> = content.lines().collect();
         let max_available = lines.len() as u32;
 
         if let Some(start_line) = args.start_line {
-            if start_line > max_available && max_available > 0 || (max_available == 0 && start_line > 0) {
+            if start_line > max_available && max_available > 0
+                || (max_available == 0 && start_line > 0)
+            {
                 return Err(ToolError::InvalidRange {
                     message: format!(
                         "read_file: start_line ({}) excede las lineas disponibles ({})",
@@ -90,7 +119,8 @@ impl Tool for ReadFileTool {
         }
 
         if let Some(end_line) = args.end_line {
-            if end_line > max_available && max_available > 0 || (max_available == 0 && end_line > 0) {
+            if end_line > max_available && max_available > 0 || (max_available == 0 && end_line > 0)
+            {
                 return Err(ToolError::InvalidRange {
                     message: format!(
                         "read_file: end_line ({}) excede las lineas disponibles ({})",

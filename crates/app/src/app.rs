@@ -56,11 +56,12 @@ impl App {
             .max_depth(3)
             .sort_by_file_name()
             .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| {
+            .filter_entry(|e| {
                 let name = e.file_name().to_string_lossy();
-                name != ".git" && name != "target"
+                !(e.file_type().is_dir()
+                    && (name == ".git" || name == "target" || name == "node_modules"))
             })
+            .filter_map(|e| e.ok())
             .map(|e| FileEntry {
                 depth: e.depth(),
                 is_dir: e.file_type().is_dir(),
@@ -102,7 +103,12 @@ impl App {
             let tx_cfg = tx.clone();
             tokio::spawn(async move {
                 while let Some(new_cfg) = cfg_rx.recv().await {
-                    if tx_cfg.send(AppMessage::ConfigReload(new_cfg)).is_err() { break; }
+                    if tx_cfg
+                        .send(AppMessage::ConfigReload(Box::new(new_cfg)))
+                        .is_err()
+                    {
+                        break;
+                    }
                 }
             });
         }
@@ -114,7 +120,9 @@ impl App {
             let mut ticker = interval(tick_rate);
             loop {
                 ticker.tick().await;
-                if tx_tick.send(AppMessage::Tick).is_err() { break; }
+                if tx_tick.send(AppMessage::Tick).is_err() {
+                    break;
+                }
             }
         });
 
@@ -131,31 +139,51 @@ impl App {
             let path_str = path.to_string_lossy().to_string();
             if let Ok(content) = std::fs::read_to_string(&path) {
                 state.open_buffer(&path_str, &content);
-                if let Some(client) = &lsp_client { client.open(&path_str, &content); }
+                if let Some(client) = &lsp_client {
+                    client.open(&path_str, &content);
+                }
             }
         }
 
         let mut tab_buf: Vec<dca_types::view_state::BufferTab> = Vec::with_capacity(8);
         let mut chat_msg_view_buf: Vec<ChatMessageView> = Vec::with_capacity(64);
-        let mut theme_names: Vec<String> = state.available_themes.iter().map(|t| t.name.clone()).collect();
-        let mut theme_accents: Vec<(String, String)> = state.available_themes.iter()
+        let mut theme_names: Vec<String> = state
+            .available_themes
+            .iter()
+            .map(|t| t.name.clone())
+            .collect();
+        let mut theme_accents: Vec<(String, String)> = state
+            .available_themes
+            .iter()
             .map(|t| (t.accent.clone(), t.bg.clone()))
             .collect();
 
         loop {
             let term_height = terminal.size().map(|s| s.height as usize).unwrap_or(24);
-            state.buffer_mut().update_scroll(term_height.saturating_sub(3));
+            state
+                .buffer_mut()
+                .update_scroll(term_height.saturating_sub(3));
 
             tab_buf.clear();
-            tab_buf.extend(state.buffers.iter().map(|b| dca_types::view_state::BufferTab {
-                name: b.file_name.as_deref().unwrap_or("*nuevo*").to_string(),
-                dirty: b.dirty,
-            }));
+            tab_buf.extend(
+                state
+                    .buffers
+                    .iter()
+                    .map(|b| dca_types::view_state::BufferTab {
+                        name: display_path(b.file_name.as_deref()),
+                        dirty: b.dirty,
+                    }),
+            );
 
             theme_names.clear();
             theme_names.extend(state.available_themes.iter().map(|t| t.name.clone()));
             theme_accents.clear();
-            theme_accents.extend(state.available_themes.iter().map(|t| (t.accent.clone(), t.bg.clone())));
+            theme_accents.extend(
+                state
+                    .available_themes
+                    .iter()
+                    .map(|t| (t.accent.clone(), t.bg.clone())),
+            );
 
             chat_msg_view_buf.clear();
             chat_msg_view_buf.extend(state.chat.messages.iter().map(|m| ChatMessageView {
@@ -170,7 +198,10 @@ impl App {
             });
 
             terminal.draw(|frame| {
-                let current_diags = state.buffer().file_name.as_deref()
+                let current_diags = state
+                    .buffer()
+                    .file_name
+                    .as_deref()
                     .and_then(|p| state.diagnostics.get(p))
                     .map(|v| v.as_slice())
                     .unwrap_or(&[]);
@@ -229,11 +260,12 @@ impl App {
                 debug!("msg (drain): {:?}", msg);
                 if let AppMessage::ConfigReload(new_cfg) = msg {
                     state.chat.selected_model = new_cfg.ai.model.clone();
-                    self.config = new_cfg;
+                    self.config = *new_cfg;
                 } else if let AppMessage::AiSessionUpdate(msgs) = msg {
                     chat_session.messages = msgs;
                 } else if let Some(cmd) = update(&mut state, msg) {
-                    self.execute_command(cmd, &lsp_client, &state, &tx, &mut chat_session).await;
+                    self.execute_command(cmd, &lsp_client, &state, &tx, &mut chat_session)
+                        .await;
                 }
                 // ChangeTheme es ejecutado directamente en execute_command arriba
             }
@@ -244,17 +276,20 @@ impl App {
                     debug!("msg (await): {:?}", msg);
                     if let AppMessage::ConfigReload(new_cfg) = msg {
                         state.chat.selected_model = new_cfg.ai.model.clone();
-                        self.config = new_cfg;
+                        self.config = *new_cfg;
                     } else if let AppMessage::AiSessionUpdate(msgs) = msg {
                         chat_session.messages = msgs;
                     } else if let Some(cmd) = update(&mut state, msg) {
-                        self.execute_command(cmd, &lsp_client, &state, &tx, &mut chat_session).await;
+                        self.execute_command(cmd, &lsp_client, &state, &tx, &mut chat_session)
+                            .await;
                     }
                 }
                 None => break,
             }
 
-            if state.quit { break; }
+            if state.quit {
+                break;
+            }
         }
 
         ratatui::restore();
@@ -272,29 +307,45 @@ impl App {
         match cmd {
             // ── LSP ──────────────────────────────────────────────────────────
             Command::LspOpen { path, text } => {
-                if let Some(c) = lsp { c.open(&path, &text); }
+                if let Some(c) = lsp {
+                    c.open(&path, &text);
+                }
             }
             Command::LspChange { path, text } => {
-                if let Some(c) = lsp { c.change(&path, &text); }
+                if let Some(c) = lsp {
+                    c.change(&path, &text);
+                }
             }
             Command::LspRequestCompletion => {
                 if let Some(c) = lsp {
                     if let Some(p) = &state.buffer().file_name {
-                        c.request_completion(p, state.buffer().cursor.row as u32, state.buffer().cursor.col as u32);
+                        c.request_completion(
+                            p,
+                            state.buffer().cursor.row as u32,
+                            state.buffer().cursor.col as u32,
+                        );
                     }
                 }
             }
             Command::LspGotoDefinition => {
                 if let Some(c) = lsp {
                     if let Some(p) = &state.buffer().file_name {
-                        c.goto_definition(p, state.buffer().cursor.row as u32, state.buffer().cursor.col as u32);
+                        c.goto_definition(
+                            p,
+                            state.buffer().cursor.row as u32,
+                            state.buffer().cursor.col as u32,
+                        );
                     }
                 }
             }
             Command::LspFindReferences => {
                 if let Some(c) = lsp {
                     if let Some(p) = &state.buffer().file_name {
-                        c.find_references(p, state.buffer().cursor.row as u32, state.buffer().cursor.col as u32);
+                        c.find_references(
+                            p,
+                            state.buffer().cursor.row as u32,
+                            state.buffer().cursor.col as u32,
+                        );
                     }
                 }
             }
@@ -314,11 +365,17 @@ impl App {
                     match tokio::fs::write(&path_clone, &content).await {
                         Ok(()) => {
                             tracing::info!("Archivo guardado: {}", path_clone);
-                            let _ = tx_save.send(AppMessage::FileSaved { path: path_clone, success: true });
+                            let _ = tx_save.send(AppMessage::FileSaved {
+                                path: path_clone,
+                                success: true,
+                            });
                         }
                         Err(e) => {
                             tracing::error!("Error guardando {}: {}", path_clone, e);
-                            let _ = tx_save.send(AppMessage::FileSaved { path: path_clone, success: false });
+                            let _ = tx_save.send(AppMessage::FileSaved {
+                                path: path_clone,
+                                success: false,
+                            });
                         }
                     }
                 });
@@ -327,7 +384,8 @@ impl App {
             // ── IA ────────────────────────────────────────────────────────────
             Command::AiSendMessage => {
                 // Añadir el último mensaje del usuario a la sesión del agente
-                if let Some(user_msg) = state.chat.messages.iter().rev().find(|m| m.role == "user") {
+                if let Some(user_msg) = state.chat.messages.iter().rev().find(|m| m.role == "user")
+                {
                     session.push_user(&user_msg.content);
                 }
 
@@ -345,7 +403,7 @@ impl App {
                 let agent = AiAgent::new(
                     provider,
                     tools,
-                    &self.config.ai.build_system_prompt(),
+                    self.config.ai.build_system_prompt(),
                     self.config.ai.max_tokens,
                     self.config.ai.temperature,
                     self.config.ai.top_p,
@@ -355,7 +413,8 @@ impl App {
                 self.ai_cancel = Some(token.clone());
 
                 let (event_tx, mut event_rx) = unbounded_channel::<AiEvent>();
-                let (pending_tx, mut pending_rx) = unbounded_channel::<dca_ai::provider::ToolCall>();
+                let (pending_tx, mut pending_rx) =
+                    unbounded_channel::<dca_ai::provider::ToolCall>();
                 // Canal de aprobación exclusivo para este agente
                 let (agent_appr_tx, mut agent_appr_rx) = unbounded_channel::<ApprovalDecision>();
 
@@ -386,9 +445,17 @@ impl App {
                 tokio::spawn(async move {
                     while let Some(ev) = event_rx.recv().await {
                         match ev {
-                            AiEvent::Chunk(c) => { let _ = tx_events.send(AppMessage::AiStreamChunk(c)); }
-                            AiEvent::Done => { let _ = tx_events.send(AppMessage::AiStreamDone); break; }
-                            AiEvent::Error(e) => { let _ = tx_events.send(AppMessage::AiStreamError(e)); break; }
+                            AiEvent::Chunk(c) => {
+                                let _ = tx_events.send(AppMessage::AiStreamChunk(c));
+                            }
+                            AiEvent::Done => {
+                                let _ = tx_events.send(AppMessage::AiStreamDone);
+                                break;
+                            }
+                            AiEvent::Error(e) => {
+                                let _ = tx_events.send(AppMessage::AiStreamError(e));
+                                break;
+                            }
                             AiEvent::ToolResult { name, result } => {
                                 let _ = tx_events.send(AppMessage::AiToolResult { name, result });
                             }
@@ -398,15 +465,18 @@ impl App {
                 });
 
                 // Agente IA — al terminar, envía la sesión de vuelta por canal
-                let (sess_tx, sess_rx) = tokio::sync::oneshot::channel::<Vec<dca_ai::provider::AiMessage>>();
+                let (sess_tx, sess_rx) =
+                    tokio::sync::oneshot::channel::<Vec<dca_ai::provider::AiMessage>>();
                 tokio::spawn(async move {
-                    let _ = agent.chat_stream(
-                        &mut session_clone,
-                        event_tx,
-                        pending_tx,
-                        &mut agent_appr_rx,
-                        token,
-                    ).await;
+                    let _ = agent
+                        .chat_stream(
+                            &mut session_clone,
+                            event_tx,
+                            pending_tx,
+                            &mut agent_appr_rx,
+                            token,
+                        )
+                        .await;
                     let _ = sess_tx.send(session_clone.messages);
                 });
 
@@ -453,12 +523,22 @@ impl App {
 
             Command::AiInjectBuffer => {
                 let buf_content = state.buffer().lines.join("\n");
-                let fname = state.buffer().file_name.as_deref().unwrap_or("buffer").to_string();
+                let fname = state
+                    .buffer()
+                    .file_name
+                    .as_deref()
+                    .unwrap_or("buffer")
+                    .to_string();
                 session.push_user(format!("[Contexto: {fname}]\n```\n{buf_content}\n```"));
             }
 
             Command::ChangeTheme(name) => {
-                if let Some(t) = state.available_themes.iter().find(|t| t.name == name).cloned() {
+                if let Some(t) = state
+                    .available_themes
+                    .iter()
+                    .find(|t| t.name == name)
+                    .cloned()
+                {
                     self.config.theme = t;
                     let _ = self.config.save_theme();
                 }
@@ -466,34 +546,66 @@ impl App {
 
             // ── Skills ───────────────────────────────────────────────────────
             Command::InstallSkills { repo, skill } => {
-                let manager = dca_config::SkillsManager::new(dca_config::SkillsManager::default_dir());
+                let manager =
+                    dca_config::SkillsManager::new(dca_config::SkillsManager::default_dir());
+                let tx_skills = tx.clone();
                 tokio::spawn(async move {
                     match manager.install_from_github(&repo, skill.as_deref()).await {
                         Ok(installed) => {
-                            let names: Vec<String> = installed.iter().map(|s| s.name.clone()).collect();
+                            let names: Vec<String> =
+                                installed.iter().map(|s| s.name.clone()).collect();
                             tracing::info!("Skills instaladas: {:?}", names);
+                            let _ = tx_skills.send(AppMessage::Notice(format!(
+                                "Skills instaladas: {}",
+                                names.join(", ")
+                            )));
                         }
                         Err(e) => {
                             tracing::error!("Error instalando skills: {}", e);
+                            let _ = tx_skills
+                                .send(AppMessage::Notice(format!("Error instalando skills: {e}")));
                         }
                     }
                 });
             }
             Command::ListSkills => {
-                let manager = dca_config::SkillsManager::new(dca_config::SkillsManager::default_dir());
+                let manager =
+                    dca_config::SkillsManager::new(dca_config::SkillsManager::default_dir());
                 match manager.list_installed() {
                     Ok(skills) => {
                         if skills.is_empty() {
                             tracing::info!("No hay skills instaladas.");
+                            let _ = tx
+                                .send(AppMessage::Notice("No hay skills instaladas.".to_string()));
                         } else {
+                            let summary = skills
+                                .iter()
+                                .map(|s| format!("{} - {}", s.name, s.description))
+                                .collect::<Vec<_>>()
+                                .join("\n");
                             for s in &skills {
                                 tracing::info!("  {} - {}", s.name, s.description);
                             }
+                            let _ = tx
+                                .send(AppMessage::Notice(format!("Skills instaladas:\n{summary}")));
                         }
                     }
-                    Err(e) => tracing::error!("Error listando skills: {}", e),
+                    Err(e) => {
+                        tracing::error!("Error listando skills: {}", e);
+                        let _ = tx.send(AppMessage::Notice(format!("Error listando skills: {e}")));
+                    }
                 }
             }
         }
     }
+}
+
+fn display_path(path: Option<&str>) -> String {
+    path.and_then(|p| {
+        std::path::Path::new(p)
+            .file_name()
+            .and_then(|name| name.to_str())
+    })
+    .unwrap_or("*nuevo*")
+    .to_string()
 }

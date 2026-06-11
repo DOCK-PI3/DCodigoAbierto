@@ -17,7 +17,10 @@ pub enum PaletteItemKind {
     /// Seleccionar un modelo de IA
     Model { name: String },
     /// Acción del sistema
-    Action { id: PaletteActionId, shortcut: &'static str },
+    Action {
+        id: PaletteActionId,
+        shortcut: &'static str,
+    },
     /// Separador de sección (no seleccionable)
     Section { label: &'static str },
 }
@@ -36,7 +39,7 @@ pub enum PaletteActionId {
 
 #[derive(Debug, Clone)]
 pub struct PaletteItem {
-    pub kind:  PaletteItemKind,
+    pub kind: PaletteItemKind,
     pub label: String,
 }
 
@@ -52,15 +55,17 @@ pub struct CommandPaletteWidget<'a> {
     pub query: &'a str,
     pub query_cursor: usize,
     pub items: &'a [PaletteItem],
-    pub selected: usize,    pub palette: &'a Palette,}
+    pub selected: usize,
+    pub palette: &'a Palette,
+}
 
 impl<'a> Widget for CommandPaletteWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let bg     = self.palette.bg_secondary;
-        let fg     = self.palette.fg;
-        let dim    = self.palette.fg_dim;
-        let acc    = self.palette.accent;
-        let info   = self.palette.info;
+        let bg = self.palette.bg_secondary;
+        let fg = self.palette.fg;
+        let dim = self.palette.fg_dim;
+        let acc = self.palette.accent;
+        let info = self.palette.info;
 
         // Popup centrado: 60% ancho, 70% alto
         let popup = centered_rect(60, 70, area);
@@ -75,35 +80,66 @@ impl<'a> Widget for CommandPaletteWidget<'a> {
         outer.render(popup, buf);
 
         // Cabecera: "Commands" + "esc"
-        let header_area = Rect { x: inner.x, y: inner.y, width: inner.width, height: 1 };
-        let list_area   = Rect { x: inner.x, y: inner.y + 2, width: inner.width,
-                                  height: inner.height.saturating_sub(3) };
-        let search_area = Rect { x: inner.x, y: inner.y + 1, width: inner.width, height: 1 };
+        let header_area = Rect {
+            x: inner.x,
+            y: inner.y,
+            width: inner.width,
+            height: 1,
+        };
+        let list_area = Rect {
+            x: inner.x,
+            y: inner.y + 2,
+            width: inner.width,
+            height: inner.height.saturating_sub(3),
+        };
+        let search_area = Rect {
+            x: inner.x,
+            y: inner.y + 1,
+            width: inner.width,
+            height: 1,
+        };
 
         // Header
-        Paragraph::new(Line::from(vec![
-            Span::styled("Commands", Style::default().fg(fg).add_modifier(Modifier::BOLD)),
-        ])).render(header_area, buf);
-        Paragraph::new(Line::from(vec![
-            Span::styled("esc", Style::default().fg(dim)),
-        ])).render(
-            Rect { x: inner.x + inner.width.saturating_sub(3), y: inner.y, width: 3, height: 1 },
+        Paragraph::new(Line::from(vec![Span::styled(
+            "Commands",
+            Style::default().fg(fg).add_modifier(Modifier::BOLD),
+        )]))
+        .render(header_area, buf);
+        Paragraph::new(Line::from(vec![Span::styled(
+            "esc",
+            Style::default().fg(dim),
+        )]))
+        .render(
+            Rect {
+                x: inner.x + inner.width.saturating_sub(3),
+                y: inner.y,
+                width: 3,
+                height: 1,
+            },
             buf,
         );
 
         // Search box
-        let cursor    = self.query_cursor.min(self.query.len());
-        let before    = &self.query[..cursor];
-        let rest      = &self.query[cursor..];
-        let cur_ch    = rest.chars().next().map(|c| c.to_string()).unwrap_or_default();
+        let cursor = self.query_cursor.min(self.query.len());
+        let before = &self.query[..cursor];
+        let rest = &self.query[cursor..];
+        let cur_ch = rest
+            .chars()
+            .next()
+            .map(|c| c.to_string())
+            .unwrap_or_default();
         let after_str = rest.chars().skip(1).collect::<String>();
         let search_line = if self.query.is_empty() {
             Line::from(Span::styled("Search...", Style::default().fg(dim)))
         } else {
             Line::from(vec![
-                Span::styled(before,    Style::default().fg(fg)),
+                Span::styled(before, Style::default().fg(fg)),
                 Span::styled(
-                    if cur_ch.is_empty() { " ".to_string() } else { cur_ch },
+                    if cur_ch.is_empty() {
+                        " ".to_string()
+                    } else {
+                        cur_ch
+                    },
                     Style::default().bg(acc).fg(bg),
                 ),
                 Span::styled(after_str, Style::default().fg(fg)),
@@ -126,12 +162,10 @@ impl<'a> Widget for CommandPaletteWidget<'a> {
         for (i, item) in self.items.iter().enumerate() {
             let is_selected = Some(i) == selected_array_idx;
             let item_line = match &item.kind {
-                PaletteItemKind::Section { label } => {
-                    Line::from(Span::styled(
-                        *label,
-                        Style::default().fg(acc).add_modifier(Modifier::BOLD),
-                    ))
-                }
+                PaletteItemKind::Section { label } => Line::from(Span::styled(
+                    *label,
+                    Style::default().fg(acc).add_modifier(Modifier::BOLD),
+                )),
                 PaletteItemKind::File { path } => {
                     let display = short_path(path);
                     let style = if is_selected {
@@ -166,11 +200,14 @@ impl<'a> Widget for CommandPaletteWidget<'a> {
                         .saturating_sub(label_padded.len() + shortcut.len());
                     Line::from(vec![
                         Span::styled(label_padded, label_style),
-                        Span::styled(" ".repeat(pad), if is_selected {
-                            Style::default().bg(acc)
-                        } else {
-                            Style::default()
-                        }),
+                        Span::styled(
+                            " ".repeat(pad),
+                            if is_selected {
+                                Style::default().bg(acc)
+                            } else {
+                                Style::default()
+                            },
+                        ),
                         Span::styled(*shortcut, short_style),
                     ])
                 }
@@ -210,7 +247,8 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 /// Mapea el índice lógico de selección (0..N solo items seleccionables)
 /// al índice real dentro del array de items (que incluye Sections no seleccionables).
 fn selectable_index(items: &[PaletteItem], selected: usize) -> Option<usize> {
-    items.iter()
+    items
+        .iter()
         .enumerate()
         .filter(|(_, item)| item.is_selectable())
         .nth(selected)

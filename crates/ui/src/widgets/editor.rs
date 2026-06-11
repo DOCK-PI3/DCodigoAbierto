@@ -28,7 +28,13 @@ impl<'a> Widget for EditorWidget<'a> {
         };
 
         let title_text = match &self.buffer.file_name {
-            Some(name) => format!(" {} {} ", name, if self.buffer.dirty { "[+]" } else { "" }),
+            Some(path) => {
+                let name = std::path::Path::new(path)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(path);
+                format!(" {} {} ", name, if self.buffer.dirty { "[+]" } else { "" })
+            }
             None => " *nuevo* ".to_string(),
         };
 
@@ -55,10 +61,7 @@ impl<'a> Widget for EditorWidget<'a> {
         // Split inner area: gutter | contenido
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Length(gutter_width as u16),
-                Constraint::Min(1),
-            ])
+            .constraints([Constraint::Length(gutter_width as u16), Constraint::Min(1)])
             .split(inner);
 
         let gutter_area = chunks[0];
@@ -76,18 +79,15 @@ impl<'a> Widget for EditorWidget<'a> {
                     let diag = self.diagnostics.iter().find(|d| d.line as usize == row);
                     let (marker, marker_style) = match diag {
                         Some(d) => match d.severity {
-                            DiagnosticSeverity::Error => (
-                                "●",
-                                Style::default().fg(self.palette.error),
-                            ),
-                            DiagnosticSeverity::Warning => (
-                                "●",
-                                Style::default().fg(self.palette.warn),
-                            ),
-                            DiagnosticSeverity::Info | DiagnosticSeverity::Hint => (
-                                "●",
-                                Style::default().fg(self.palette.info),
-                            ),
+                            DiagnosticSeverity::Error => {
+                                ("●", Style::default().fg(self.palette.error))
+                            }
+                            DiagnosticSeverity::Warning => {
+                                ("●", Style::default().fg(self.palette.warn))
+                            }
+                            DiagnosticSeverity::Info | DiagnosticSeverity::Hint => {
+                                ("●", Style::default().fg(self.palette.info))
+                            }
                         },
                         None => (" ", Style::default()),
                     };
@@ -196,4 +196,3 @@ fn build_cursor_line<'a>(line: &'a str, cursor_col: usize, palette: &'a Palette)
         Span::styled(after, Style::default().fg(palette.fg).bg(palette.bg)),
     ])
 }
-

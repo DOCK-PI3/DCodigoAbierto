@@ -83,7 +83,9 @@ fn parse_kv(line: &str) -> Option<(String, String)> {
     let (key, rest) = line.split_once('=')?;
     let key = key.trim().to_string();
     let val = rest.trim().trim_matches('"').to_string();
-    if key.is_empty() || val.is_empty() { return None; }
+    if key.is_empty() || val.is_empty() {
+        return None;
+    }
     Some((key, val))
 }
 

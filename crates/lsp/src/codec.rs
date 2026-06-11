@@ -16,9 +16,7 @@ pub async fn write_message(
 
 /// Lee un mensaje LSP del reader (Content-Length framing).
 /// Devuelve el body JSON como String.
-pub async fn read_message(
-    reader: &mut BufReader<ChildStdout>,
-) -> color_eyre::Result<String> {
+pub async fn read_message(reader: &mut BufReader<ChildStdout>) -> color_eyre::Result<String> {
     let mut content_length: Option<usize> = None;
 
     // Leer cabeceras hasta la línea vacía

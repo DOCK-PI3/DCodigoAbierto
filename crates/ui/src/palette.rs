@@ -47,14 +47,14 @@ fn parse_color(s: &str) -> Color {
     }
     // Fallback a nombre ANSI básico
     match s.to_lowercase().as_str() {
-        "black"   => Color::Black,
-        "red"     => Color::Red,
-        "green"   => Color::Green,
-        "yellow"  => Color::Yellow,
-        "blue"    => Color::Blue,
+        "black" => Color::Black,
+        "red" => Color::Red,
+        "green" => Color::Green,
+        "yellow" => Color::Yellow,
+        "blue" => Color::Blue,
         "magenta" => Color::Magenta,
-        "cyan"    => Color::Cyan,
-        "white"   => Color::White,
-        _         => Color::Reset,
+        "cyan" => Color::Cyan,
+        "white" => Color::White,
+        _ => Color::Reset,
     }
 }

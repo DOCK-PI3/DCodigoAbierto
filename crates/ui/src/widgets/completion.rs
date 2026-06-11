@@ -93,7 +93,9 @@ impl<'a> Widget for CompletionWidget<'a> {
             if let Some(detail) = &item.detail {
                 let d = Span::styled(
                     format!(" {detail}"),
-                    Style::default().fg(self.palette.info).bg(self.palette.bg_secondary),
+                    Style::default()
+                        .fg(self.palette.info)
+                        .bg(self.palette.bg_secondary),
                 );
                 ratatui::widgets::Paragraph::new(Line::from(d))
                     .style(Style::default().bg(self.palette.bg_secondary))
@@ -115,7 +117,7 @@ pub fn completion_popup_rect(
     let popup_width = 60u16.min(editor_area.width.saturating_sub(2));
 
     // Intentar mostrar debajo del cursor; si no cabe, encima
-    let y = if cursor_screen_row + popup_height + 1 <= editor_area.y + editor_area.height {
+    let y = if cursor_screen_row + popup_height < editor_area.y + editor_area.height {
         cursor_screen_row + 1
     } else {
         cursor_screen_row.saturating_sub(popup_height)
@@ -126,5 +128,10 @@ pub fn completion_popup_rect(
         .min(editor_area.x + editor_area.width - popup_width - 1)
         .max(editor_area.x);
 
-    Rect { x, y, width: popup_width, height: popup_height }
+    Rect {
+        x,
+        y,
+        width: popup_width,
+        height: popup_height,
+    }
 }

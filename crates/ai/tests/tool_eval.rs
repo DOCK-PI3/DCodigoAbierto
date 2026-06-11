@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use color_eyre::Result;
-use dca_ai::{AiAgent, AiEvent, AiMessage, AiProvider, AiRole, ChatSession, ToolCall, ToolDef};
 use dca_ai::agent::ApprovalDecision;
 use dca_ai::tools::all_tools;
+use dca_ai::{AiAgent, AiEvent, AiMessage, AiProvider, AiRole, ChatSession, ToolCall, ToolDef};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio_util::sync::CancellationToken;
 
@@ -179,11 +179,10 @@ async fn tool_eval_selection_accuracy() {
 
         let passed_case = match (case.expected_tool, tool_calls.first()) {
             (None, None) => true,
-            (Some(expected_tool), Some(actual_tool)) if actual_tool.name == expected_tool => {
-                case.expected_args_validator
-                    .map(|validator| validator(&actual_tool.arguments))
-                    .unwrap_or(true)
-            }
+            (Some(expected_tool), Some(actual_tool)) if actual_tool.name == expected_tool => case
+                .expected_args_validator
+                .map(|validator| validator(&actual_tool.arguments))
+                .unwrap_or(true),
             _ => false,
         };
 
@@ -194,11 +193,17 @@ async fn tool_eval_selection_accuracy() {
                 "Caso '{}' fallo. expected_tool={:?}, actual={:?}",
                 case.name,
                 case.expected_tool,
-                tool_calls.first().map(|tool_call| (&tool_call.name, &tool_call.arguments))
+                tool_calls
+                    .first()
+                    .map(|tool_call| (&tool_call.name, &tool_call.arguments))
             );
         }
     }
 
     let accuracy = (passed as f64 / cases.len() as f64) * 100.0;
-    assert!(accuracy >= 90.0, "Precision minima esperada: 90%, actual: {:.1}%", accuracy);
+    assert!(
+        accuracy >= 90.0,
+        "Precision minima esperada: 90%, actual: {:.1}%",
+        accuracy
+    );
 }

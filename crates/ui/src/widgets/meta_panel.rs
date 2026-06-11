@@ -11,7 +11,7 @@ use crate::palette::Palette;
 pub struct MetaPanelWidget<'a> {
     pub session_name: &'a str,
     pub tokens_generated: usize,
-    pub lsp_status_label: &'a str,   // "rust-analyzer ●" | "desactivado" | "…"
+    pub lsp_status_label: &'a str, // "rust-analyzer ●" | "desactivado" | "…"
     pub lsp_ok: bool,
     pub cwd: &'a str,
     pub version: &'a str,
@@ -20,8 +20,8 @@ pub struct MetaPanelWidget<'a> {
 
 impl<'a> Widget for MetaPanelWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let bg  = self.palette.bg;
-        let fg  = self.palette.fg;
+        let bg = self.palette.bg;
+        let fg = self.palette.fg;
         let dim = self.palette.fg_dim;
         let acc = self.palette.accent;
 
@@ -33,7 +33,9 @@ impl<'a> Widget for MetaPanelWidget<'a> {
         let inner = block.inner(area);
         block.render(area, buf);
 
-        if inner.height == 0 { return; }
+        if inner.height == 0 {
+            return;
+        }
 
         let mut row = inner.y;
 
@@ -43,22 +45,42 @@ impl<'a> Widget for MetaPanelWidget<'a> {
                 self.session_name,
                 Style::default().fg(fg).add_modifier(Modifier::BOLD),
             )))
-            .render(Rect { x: inner.x, y: row, width: inner.width, height: 1 }, buf);
+            .render(
+                Rect {
+                    x: inner.x,
+                    y: row,
+                    width: inner.width,
+                    height: 1,
+                },
+                buf,
+            );
             row += 1;
         }
 
         // gap
         row = row.saturating_add(1);
-        if row >= inner.y + inner.height { return; }
+        if row >= inner.y + inner.height {
+            return;
+        }
 
         // ── Contexto (tokens) ─────────────────────────────────────────────────
         Paragraph::new(Line::from(Span::styled(
             "Context",
             Style::default().fg(acc).add_modifier(Modifier::BOLD),
         )))
-        .render(Rect { x: inner.x, y: row, width: inner.width, height: 1 }, buf);
+        .render(
+            Rect {
+                x: inner.x,
+                y: row,
+                width: inner.width,
+                height: 1,
+            },
+            buf,
+        );
         row += 1;
-        if row >= inner.y + inner.height { return; }
+        if row >= inner.y + inner.height {
+            return;
+        }
 
         // Tokens generados
         let tokens_k = format_tokens(self.tokens_generated);
@@ -66,49 +88,88 @@ impl<'a> Widget for MetaPanelWidget<'a> {
             format!("  {tokens_k} tokens"),
             Style::default().fg(fg),
         )))
-        .render(Rect { x: inner.x, y: row, width: inner.width, height: 1 }, buf);
+        .render(
+            Rect {
+                x: inner.x,
+                y: row,
+                width: inner.width,
+                height: 1,
+            },
+            buf,
+        );
         row += 1;
-        if row >= inner.y + inner.height { return; }
+        if row >= inner.y + inner.height {
+            return;
+        }
 
         // gap
         row = row.saturating_add(1);
-        if row >= inner.y + inner.height { return; }
+        if row >= inner.y + inner.height {
+            return;
+        }
 
         // ── Estado LSP ────────────────────────────────────────────────────────
         Paragraph::new(Line::from(Span::styled(
             "LSP",
             Style::default().fg(acc).add_modifier(Modifier::BOLD),
         )))
-        .render(Rect { x: inner.x, y: row, width: inner.width, height: 1 }, buf);
+        .render(
+            Rect {
+                x: inner.x,
+                y: row,
+                width: inner.width,
+                height: 1,
+            },
+            buf,
+        );
         row += 1;
-        if row >= inner.y + inner.height { return; }
+        if row >= inner.y + inner.height {
+            return;
+        }
 
         let lsp_color = if self.lsp_ok { self.palette.info } else { dim };
         Paragraph::new(Line::from(Span::styled(
             format!("  {}", self.lsp_status_label),
             Style::default().fg(lsp_color),
         )))
-        .render(Rect { x: inner.x, y: row, width: inner.width, height: 1 }, buf);
+        .render(
+            Rect {
+                x: inner.x,
+                y: row,
+                width: inner.width,
+                height: 1,
+            },
+            buf,
+        );
 
         // ── CWD (esquina inferior) ────────────────────────────────────────────
         let last_row = inner.y + inner.height.saturating_sub(2);
         if last_row > row {
-            Paragraph::new(Line::from(Span::styled(
-                self.cwd,
-                Style::default().fg(dim),
-            )))
-            .render(Rect { x: inner.x, y: last_row, width: inner.width, height: 1 }, buf);
+            Paragraph::new(Line::from(Span::styled(self.cwd, Style::default().fg(dim)))).render(
+                Rect {
+                    x: inner.x,
+                    y: last_row,
+                    width: inner.width,
+                    height: 1,
+                },
+                buf,
+            );
         }
 
         // Versión
         let ver_row = inner.y + inner.height.saturating_sub(1);
         if ver_row > row {
-            Paragraph::new(Span::styled(
-                self.version,
-                Style::default().fg(dim),
-            ))
-            .alignment(Alignment::Right)
-            .render(Rect { x: inner.x, y: ver_row, width: inner.width, height: 1 }, buf);
+            Paragraph::new(Span::styled(self.version, Style::default().fg(dim)))
+                .alignment(Alignment::Right)
+                .render(
+                    Rect {
+                        x: inner.x,
+                        y: ver_row,
+                        width: inner.width,
+                        height: 1,
+                    },
+                    buf,
+                );
         }
     }
 }

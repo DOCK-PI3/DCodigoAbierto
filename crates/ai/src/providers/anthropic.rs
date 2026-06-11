@@ -57,8 +57,14 @@ enum AnthropicEvent {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ContentBlock {
-    Text { #[allow(dead_code)] text: String },
-    ToolUse { id: String, name: String },
+    Text {
+        #[allow(dead_code)]
+        text: String,
+    },
+    ToolUse {
+        id: String,
+        name: String,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -100,12 +106,18 @@ fn build_messages(messages: &[AiMessage]) -> (Option<String>, Vec<serde_json::Va
             }
             AiRole::Assistant => {
                 if !m.tool_calls.is_empty() {
-                    let blocks: Vec<_> = m.tool_calls.iter().map(|tc| serde_json::json!({
-                        "type": "tool_use",
-                        "id": tc.id,
-                        "name": tc.name,
-                        "input": tc.arguments,
-                    })).collect();
+                    let blocks: Vec<_> = m
+                        .tool_calls
+                        .iter()
+                        .map(|tc| {
+                            serde_json::json!({
+                                "type": "tool_use",
+                                "id": tc.id,
+                                "name": tc.name,
+                                "input": tc.arguments,
+                            })
+                        })
+                        .collect();
                     out.push(serde_json::json!({ "role": "assistant", "content": blocks }));
                 } else {
                     out.push(serde_json::json!({ "role": "assistant", "content": m.content }));
@@ -129,26 +141,37 @@ fn build_messages(messages: &[AiMessage]) -> (Option<String>, Vec<serde_json::Va
 }
 
 fn build_tools(tools: &[ToolDef]) -> Vec<serde_json::Value> {
-    tools.iter().map(|t| serde_json::json!({
-        "name": t.name,
-        "description": t.description,
-        "input_schema": t.parameters,
-    })).collect()
+    tools
+        .iter()
+        .map(|t| {
+            serde_json::json!({
+                "name": t.name,
+                "description": t.description,
+                "input_schema": t.parameters,
+            })
+        })
+        .collect()
 }
 
 // ── Implementación del trait ─────────────────────────────────────────────────
 
 #[async_trait]
 impl AiProvider for AnthropicProvider {
-    fn name(&self) -> &str { "anthropic" }
+    fn name(&self) -> &str {
+        "anthropic"
+    }
 
     async fn list_models(&self) -> Result<Vec<String>> {
         let url = format!("{}/v1/models", self.base_url);
-        let resp: AnthropicModelsResponse = self.client
+        let resp: AnthropicModelsResponse = self
+            .client
             .get(&url)
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
-            .send().await?.json().await?;
+            .send()
+            .await?
+            .json()
+            .await?;
         Ok(resp.data.into_iter().map(|m| m.id).collect())
     }
 
@@ -180,12 +203,14 @@ impl AiProvider for AnthropicProvider {
 
         debug!("anthropic chat_stream → {url}");
 
-        let resp = self.client
+        let resp = self
+            .client
             .post(&url)
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
             .json(&body)
-            .send().await?;
+            .send()
+            .await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -195,6 +220,7 @@ impl AiProvider for AnthropicProvider {
         }
 
         let mut stream = resp.bytes_stream();
+        let mut stream_buffer = String::new();
 
         // Buffers indexados para tool_use blocks
         let mut block_ids: Vec<String> = vec![];
@@ -210,14 +236,19 @@ impl AiProvider for AnthropicProvider {
                 }
             };
 
-            for line in std::str::from_utf8(&bytes).unwrap_or("").lines() {
-                let line = line.trim();
-                if !line.starts_with("data: ") { continue; }
+            for line in drain_complete_lines(&mut stream_buffer, &bytes) {
+                let line = line.trim().to_string();
+                if !line.starts_with("data: ") {
+                    continue;
+                }
                 let data = &line["data: ".len()..];
 
                 match serde_json::from_str::<AnthropicEvent>(data) {
                     Ok(event) => match event {
-                        AnthropicEvent::ContentBlockStart { index, content_block } => {
+                        AnthropicEvent::ContentBlockStart {
+                            index,
+                            content_block,
+                        } => {
                             while block_ids.len() <= index {
                                 block_ids.push(String::new());
                                 block_names.push(String::new());
@@ -228,26 +259,27 @@ impl AiProvider for AnthropicProvider {
                                 block_names[index] = name;
                             }
                         }
-                        AnthropicEvent::ContentBlockDelta { index, delta } => {
-                            match delta {
-                                ContentDelta::TextDelta { text } => {
-                                    let _ = tx.send(AiEvent::Chunk(text));
-                                }
-                                ContentDelta::InputJsonDelta { partial_json } => {
-                                    if let Some(buf) = block_args.get_mut(index) {
-                                        buf.push_str(&partial_json);
-                                    }
+                        AnthropicEvent::ContentBlockDelta { index, delta } => match delta {
+                            ContentDelta::TextDelta { text } => {
+                                let _ = tx.send(AiEvent::Chunk(text));
+                            }
+                            ContentDelta::InputJsonDelta { partial_json } => {
+                                if let Some(buf) = block_args.get_mut(index) {
+                                    buf.push_str(&partial_json);
                                 }
                             }
-                        }
+                        },
                         AnthropicEvent::ContentBlockStop { index } => {
                             if let Some(name) = block_names.get(index) {
                                 if !name.is_empty() {
-                                    let id = block_ids.get(index)
-                                        .cloned().unwrap_or_else(|| format!("call_{index}"));
+                                    let id = block_ids
+                                        .get(index)
+                                        .cloned()
+                                        .unwrap_or_else(|| format!("call_{index}"));
                                     let args: serde_json::Value = serde_json::from_str(
-                                        block_args.get(index).map(|s| s.as_str()).unwrap_or("{}")
-                                    ).unwrap_or(serde_json::json!({}));
+                                        block_args.get(index).map(|s| s.as_str()).unwrap_or("{}"),
+                                    )
+                                    .unwrap_or(serde_json::json!({}));
                                     let _ = tx.send(AiEvent::ToolCallRequest(ToolCall {
                                         id,
                                         name: name.clone(),
@@ -271,7 +303,92 @@ impl AiProvider for AnthropicProvider {
             }
         }
 
+        for line in drain_remaining_line(&mut stream_buffer) {
+            let line = line.trim().to_string();
+            if !line.starts_with("data: ") {
+                continue;
+            }
+            let data = &line["data: ".len()..];
+
+            match serde_json::from_str::<AnthropicEvent>(data) {
+                Ok(event) => match event {
+                    AnthropicEvent::ContentBlockStart {
+                        index,
+                        content_block,
+                    } => {
+                        while block_ids.len() <= index {
+                            block_ids.push(String::new());
+                            block_names.push(String::new());
+                            block_args.push(String::new());
+                        }
+                        if let ContentBlock::ToolUse { id, name } = content_block {
+                            block_ids[index] = id;
+                            block_names[index] = name;
+                        }
+                    }
+                    AnthropicEvent::ContentBlockDelta { index, delta } => match delta {
+                        ContentDelta::TextDelta { text } => {
+                            let _ = tx.send(AiEvent::Chunk(text));
+                        }
+                        ContentDelta::InputJsonDelta { partial_json } => {
+                            if let Some(buf) = block_args.get_mut(index) {
+                                buf.push_str(&partial_json);
+                            }
+                        }
+                    },
+                    AnthropicEvent::ContentBlockStop { index } => {
+                        if let Some(name) = block_names.get(index) {
+                            if !name.is_empty() {
+                                let id = block_ids
+                                    .get(index)
+                                    .cloned()
+                                    .unwrap_or_else(|| format!("call_{index}"));
+                                let args: serde_json::Value = serde_json::from_str(
+                                    block_args.get(index).map(|s| s.as_str()).unwrap_or("{}"),
+                                )
+                                .unwrap_or(serde_json::json!({}));
+                                let _ = tx.send(AiEvent::ToolCallRequest(ToolCall {
+                                    id,
+                                    name: name.clone(),
+                                    arguments: args,
+                                    buffer_version: None,
+                                    target_buffer_id: None,
+                                }));
+                            }
+                        }
+                    }
+                    AnthropicEvent::MessageStop => {
+                        let _ = tx.send(AiEvent::Done);
+                        return Ok(());
+                    }
+                    _ => {}
+                },
+                Err(e) => {
+                    debug!("anthropic parse: {e} | {data}");
+                }
+            }
+        }
+
         let _ = tx.send(AiEvent::Done);
         Ok(())
+    }
+}
+
+fn drain_complete_lines(buffer: &mut String, bytes: &[u8]) -> Vec<String> {
+    buffer.push_str(&String::from_utf8_lossy(bytes));
+    let mut lines = Vec::new();
+    while let Some(pos) = buffer.find('\n') {
+        let line: String = buffer.drain(..=pos).collect();
+        lines.push(line.trim_end_matches(['\r', '\n']).to_string());
+    }
+    lines
+}
+
+fn drain_remaining_line(buffer: &mut String) -> Vec<String> {
+    if buffer.trim().is_empty() {
+        buffer.clear();
+        Vec::new()
+    } else {
+        vec![std::mem::take(buffer)]
     }
 }

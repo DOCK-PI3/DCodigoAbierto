@@ -21,7 +21,10 @@ impl<'a> Widget for FuzzyWidget<'a> {
         let block = Block::default()
             .title(Span::styled(
                 " Fuzzy Finder  Esc: cerrar  Enter: abrir ",
-                Style::default().fg(self.palette.bg).bg(self.palette.accent).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(self.palette.bg)
+                    .bg(self.palette.accent)
+                    .add_modifier(Modifier::BOLD),
             ))
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
@@ -54,13 +57,21 @@ impl<'a> Widget for FuzzyWidget<'a> {
             0
         };
 
-        let items: Vec<ListItem> = self.results.iter().skip(scroll).take(visible).enumerate()
+        let items: Vec<ListItem> = self
+            .results
+            .iter()
+            .skip(scroll)
+            .take(visible)
+            .enumerate()
             .map(|(i, path)| {
                 let real_idx = i + scroll;
                 // Mostrar solo el nombre + directorio padre para claridad
                 let display = short_path(path);
                 let style = if real_idx == self.selected {
-                    Style::default().fg(self.palette.bg).bg(self.palette.accent).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(self.palette.bg)
+                        .bg(self.palette.accent)
+                        .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(self.palette.fg).bg(self.palette.bg)
                 };
@@ -76,11 +87,18 @@ impl<'a> Widget for FuzzyWidget<'a> {
 
 /// Calcula el Rect centrado del popup.
 pub fn fuzzy_popup_rect(terminal: Rect) -> Rect {
-    let width  = (terminal.width  * 70 / 100).max(40).min(terminal.width  - 4);
-    let height = (terminal.height * 60 / 100).max(10).min(terminal.height - 4);
-    let x = (terminal.width  - width)  / 2;
+    let width = (terminal.width * 70 / 100).max(40).min(terminal.width - 4);
+    let height = (terminal.height * 60 / 100)
+        .max(10)
+        .min(terminal.height - 4);
+    let x = (terminal.width - width) / 2;
     let y = (terminal.height - height) / 2;
-    Rect { x, y, width, height }
+    Rect {
+        x,
+        y,
+        width,
+        height,
+    }
 }
 
 fn short_path(path: &str) -> String {

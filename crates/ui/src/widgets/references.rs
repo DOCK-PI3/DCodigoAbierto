@@ -24,7 +24,10 @@ impl<'a> Widget for ReferencesWidget<'a> {
         let block = Block::default()
             .title(Span::styled(
                 title,
-                Style::default().fg(self.palette.bg).bg(self.palette.info).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(self.palette.bg)
+                    .bg(self.palette.info)
+                    .add_modifier(Modifier::BOLD),
             ))
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
@@ -41,17 +44,27 @@ impl<'a> Widget for ReferencesWidget<'a> {
             0
         };
 
-        let items: Vec<ListItem> = self.references.iter().skip(scroll).take(visible).enumerate()
+        let items: Vec<ListItem> = self
+            .references
+            .iter()
+            .skip(scroll)
+            .take(visible)
+            .enumerate()
             .map(|(i, loc)| {
                 let real_idx = i + scroll;
-                let path_short = loc.path.split('/').last().unwrap_or(&loc.path);
+                let path_short = loc.path.split(['/', '\\']).next_back().unwrap_or(&loc.path);
                 let line_num = loc.line + 1;
                 let preview = loc.preview.as_deref().unwrap_or("…");
                 let text = format!("  {path_short}:{line_num}  {preview}");
                 let style = if real_idx == self.selected {
-                    Style::default().fg(self.palette.bg).bg(self.palette.info).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(self.palette.bg)
+                        .bg(self.palette.info)
+                        .add_modifier(Modifier::BOLD)
                 } else {
-                    Style::default().fg(self.palette.fg).bg(self.palette.bg_secondary)
+                    Style::default()
+                        .fg(self.palette.fg)
+                        .bg(self.palette.bg_secondary)
                 };
                 ListItem::new(Line::from(Span::styled(text, style)))
             })
@@ -65,7 +78,7 @@ impl<'a> Widget for ReferencesWidget<'a> {
 
 /// Calcula el Rect del panel de referencias (parte inferior del editor).
 pub fn references_panel_rect(editor_area: Rect) -> Rect {
-    let height = (editor_area.height / 3).max(5).min(15);
+    let height = (editor_area.height / 3).clamp(5, 15);
     Rect {
         x: editor_area.x,
         y: editor_area.y + editor_area.height - height,

@@ -1,3 +1,4 @@
+use dca_types::view_state::ChatMessageView;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -5,7 +6,6 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph, Widget},
 };
-use dca_types::view_state::ChatMessageView;
 
 use crate::{highlight, palette::Palette};
 const LOGO: &[&str] = &[
@@ -23,7 +23,6 @@ const TIPS: &[&str] = &[
     "Ctrl+G para ir a definición (LSP)",
     "Tab para alternar modo Build ↔ Plan",
 ];
-
 
 // ── Widget ────────────────────────────────────────────────────────────────────
 
@@ -66,7 +65,7 @@ impl<'a> Widget for HomeWidget<'a> {
 impl<'a> HomeWidget<'a> {
     // ── Modo chat (hay mensajes o streaming activo) ───────────────────────────
     fn render_chat_mode(self, area: Rect, buf: &mut Buffer) {
-        let input_h  = 4u16; // 2 bordes + 1 texto + 1 modo
+        let input_h = 4u16; // 2 bordes + 1 texto + 1 modo
         let bottom_h = 1u16;
 
         let rows = Layout::default()
@@ -78,9 +77,9 @@ impl<'a> HomeWidget<'a> {
             ])
             .split(area);
 
-        let msg_area   = rows[0];
+        let msg_area = rows[0];
         let input_area = rows[1];
-        let hint_area  = rows[2];
+        let hint_area = rows[2];
 
         // Fondo del área de mensajes
         let bg = self.palette.bg;
@@ -92,7 +91,7 @@ impl<'a> HomeWidget<'a> {
 
         // Construir y renderizar mensajes
         let items = self.build_message_items(msg_area.width);
-        let total  = items.len();
+        let total = items.len();
         let height = msg_area.height as usize;
         // scroll = líneas subidas desde el fondo (0 = mostrar fondo)
         let max_from_top = total.saturating_sub(height);
@@ -106,7 +105,12 @@ impl<'a> HomeWidget<'a> {
         // Input centrado
         let iw = self.input_width(area.width);
         let ix = area.x + (area.width.saturating_sub(iw)) / 2;
-        let centered_input = Rect { x: ix, y: input_area.y, width: iw, height: input_area.height };
+        let centered_input = Rect {
+            x: ix,
+            y: input_area.y,
+            width: iw,
+            height: input_area.height,
+        };
         // Rellena el resto de la fila con BG_INPUT para que quede bien
         self.render_input_box(centered_input, buf);
 
@@ -116,19 +120,19 @@ impl<'a> HomeWidget<'a> {
 
     // ── Modo splash (sin mensajes) ────────────────────────────────────────────
     fn render_splash_mode(self, area: Rect, buf: &mut Buffer) {
-        let logo_h   = LOGO.len() as u16;
-        let gap1:u16 = 1;
-        let input_h  = 4u16;
-        let gap2:u16 = 1;
-        let hints_h  = 1u16;
-        let tip_h    = 1u16;
-        let cwd_h    = 1u16;
+        let logo_h = LOGO.len() as u16;
+        let gap1: u16 = 1;
+        let input_h = 4u16;
+        let gap2: u16 = 1;
+        let hints_h = 1u16;
+        let tip_h = 1u16;
+        let cwd_h = 1u16;
 
         let input_w = self.input_width(area.width);
         let input_x = area.x + (area.width.saturating_sub(input_w)) / 2;
 
         let content_h = logo_h + gap1 + input_h + gap2 + hints_h;
-        let bottom_h  = tip_h + cwd_h;
+        let bottom_h = tip_h + cwd_h;
 
         // DCA-IA-IMPROVEMENT: evita render fuera del buffer cuando la terminal es pequena.
         if area.height < content_h + bottom_h || area.width < 24 {
@@ -136,27 +140,54 @@ impl<'a> HomeWidget<'a> {
             return;
         }
 
-        let top_space = area.height.saturating_sub(content_h).saturating_sub(bottom_h) / 2;
+        let top_space = area
+            .height
+            .saturating_sub(content_h)
+            .saturating_sub(bottom_h)
+            / 2;
 
-        let logo_y  = area.y + top_space;
+        let logo_y = area.y + top_space;
         let input_y = logo_y + logo_h + gap1;
         let hints_y = input_y + input_h + gap2;
 
         // Logo
-        let logo_area = Rect { x: area.x, y: logo_y, width: area.width, height: logo_h };
+        let logo_area = Rect {
+            x: area.x,
+            y: logo_y,
+            width: area.width,
+            height: logo_h,
+        };
         let accent = self.palette.accent;
-        let dim    = self.palette.fg_dim;
-        let logo_lines: Vec<Line> = LOGO.iter().map(|l|
-            Line::from(Span::styled(*l, Style::default().fg(accent).add_modifier(Modifier::BOLD)))
-        ).collect();
-        Paragraph::new(logo_lines).alignment(Alignment::Center).render(logo_area, buf);
+        let dim = self.palette.fg_dim;
+        let logo_lines: Vec<Line> = LOGO
+            .iter()
+            .map(|l| {
+                Line::from(Span::styled(
+                    *l,
+                    Style::default().fg(accent).add_modifier(Modifier::BOLD),
+                ))
+            })
+            .collect();
+        Paragraph::new(logo_lines)
+            .alignment(Alignment::Center)
+            .render(logo_area, buf);
 
         // Input
-        let input_area = Rect { x: input_x, y: input_y, width: input_w, height: input_h };
+        let input_area = Rect {
+            x: input_x,
+            y: input_y,
+            width: input_w,
+            height: input_h,
+        };
         self.render_input_box(input_area, buf);
 
         // Hints
-        let hints_area = Rect { x: input_x, y: hints_y, width: input_w, height: hints_h };
+        let hints_area = Rect {
+            x: input_x,
+            y: hints_y,
+            width: input_w,
+            height: hints_h,
+        };
         Paragraph::new(Line::from(vec![
             Span::styled("tab agentes", Style::default().fg(dim)),
             Span::styled("   ", Style::default()),
@@ -168,21 +199,35 @@ impl<'a> HomeWidget<'a> {
         // Tip + CWD
         if area.height >= 4 {
             let tip_y = area.y + area.height.saturating_sub(bottom_h);
-            let tip_area = Rect { x: area.x, y: tip_y, width: area.width, height: tip_h };
+            let tip_area = Rect {
+                x: area.x,
+                y: tip_y,
+                width: area.width,
+                height: tip_h,
+            };
             let tip_idx = (std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs() / 30)
-                .unwrap_or(0) as usize) % TIPS.len();
+                .unwrap_or(0) as usize)
+                % TIPS.len();
             let warn = self.palette.warn;
             Paragraph::new(Line::from(vec![
                 Span::styled("● ", Style::default().fg(warn)),
-                Span::styled("Tip  ", Style::default().fg(warn).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "Tip  ",
+                    Style::default().fg(warn).add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(TIPS[tip_idx], Style::default().fg(dim)),
             ]))
             .alignment(Alignment::Center)
             .render(tip_area, buf);
 
-            let cwd_area = Rect { x: area.x, y: tip_y + tip_h, width: area.width, height: cwd_h };
+            let cwd_area = Rect {
+                x: area.x,
+                y: tip_y + tip_h,
+                width: area.width,
+                height: cwd_h,
+            };
             let cwd = cwd_str();
             Paragraph::new(Span::styled(&cwd, Style::default().fg(dim)))
                 .alignment(Alignment::Left)
@@ -215,8 +260,16 @@ impl<'a> HomeWidget<'a> {
                 height: 1,
             };
             Paragraph::new(Line::from(vec![
-                Span::styled("DCA", Style::default().fg(self.palette.accent).add_modifier(Modifier::BOLD)),
-                Span::styled(" terminal pequena", Style::default().fg(self.palette.fg_dim)),
+                Span::styled(
+                    "DCA",
+                    Style::default()
+                        .fg(self.palette.accent)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    " terminal pequena",
+                    Style::default().fg(self.palette.fg_dim),
+                ),
             ]))
             .alignment(Alignment::Center)
             .render(title_area, buf);
@@ -242,7 +295,9 @@ impl<'a> HomeWidget<'a> {
 
         let inner = block.inner(area);
         block.render(area, buf);
-        if inner.height == 0 { return; }
+        if inner.height == 0 {
+            return;
+        }
 
         let text_rows_h = inner.height.saturating_sub(1).max(1);
         let inner_split = Layout::default()
@@ -265,10 +320,21 @@ impl<'a> HomeWidget<'a> {
         }
 
         // Línea de modo
-        let mode_color = if self.chat_mode_is_build { self.palette.warn } else { self.palette.accent };
-        let provider_cap = capitalize(if self.provider_name.is_empty() { "Local" } else { self.provider_name });
+        let mode_color = if self.chat_mode_is_build {
+            self.palette.warn
+        } else {
+            self.palette.accent
+        };
+        let provider_cap = capitalize(if self.provider_name.is_empty() {
+            "Local"
+        } else {
+            self.provider_name
+        });
         Paragraph::new(Line::from(vec![
-            Span::styled(self.chat_mode_label, Style::default().fg(mode_color).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                self.chat_mode_label,
+                Style::default().fg(mode_color).add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" · ", Style::default().fg(self.palette.fg_dim)),
             Span::styled(self.active_model, Style::default().fg(self.palette.fg)),
             Span::styled("  ", Style::default()),
@@ -290,7 +356,7 @@ impl<'a> HomeWidget<'a> {
         }
 
         let chars: Vec<char> = self.chat_input.chars().collect();
-        let cursor    = self.chat_input_cursor.min(chars.len());
+        let cursor = self.chat_input_cursor.min(chars.len());
         let visible_w = area.width as usize;
 
         // Desplazar ventana para que el cursor siempre sea visible
@@ -307,7 +373,7 @@ impl<'a> HomeWidget<'a> {
             " ".to_string()
         };
         let after_start = cursor + 1;
-        let after_end   = (window_start + visible_w).min(chars.len());
+        let after_end = (window_start + visible_w).min(chars.len());
         let after_chars: String = if after_start < after_end {
             chars[after_start..after_end].iter().collect()
         } else {
@@ -324,7 +390,13 @@ impl<'a> HomeWidget<'a> {
         let line = Line::from(vec![
             scroll_indicator,
             Span::styled(before_chars, Style::default().fg(self.palette.fg)),
-            Span::styled(cur_ch, Style::default().bg(self.palette.accent).fg(self.palette.bg).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                cur_ch,
+                Style::default()
+                    .bg(self.palette.accent)
+                    .fg(self.palette.bg)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(after_chars, Style::default().fg(self.palette.fg)),
         ]);
         Paragraph::new(line).render(area, buf);
@@ -334,9 +406,16 @@ impl<'a> HomeWidget<'a> {
         for x in area.left()..area.right() {
             buf[(x, area.y)].set_bg(self.palette.bg);
         }
-        let mode_color = if self.chat_mode_is_build { self.palette.warn } else { self.palette.accent };
+        let mode_color = if self.chat_mode_is_build {
+            self.palette.warn
+        } else {
+            self.palette.accent
+        };
         Paragraph::new(Line::from(vec![
-            Span::styled(self.chat_mode_label, Style::default().fg(mode_color).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                self.chat_mode_label,
+                Style::default().fg(mode_color).add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" · ", Style::default().fg(self.palette.fg_dim)),
             Span::styled(self.active_model, Style::default().fg(self.palette.fg_dim)),
         ]))
@@ -355,22 +434,23 @@ impl<'a> HomeWidget<'a> {
         let mut items: Vec<ListItem<'static>> = vec![];
 
         let user_color = self.palette.info;
-        let ai_color   = self.palette.accent;
+        let ai_color = self.palette.accent;
         let tool_color = self.palette.warn;
-        let dim        = self.palette.fg_dim;
-        let fg         = self.palette.fg;
+        let dim = self.palette.fg_dim;
+        let fg = self.palette.fg;
 
         for msg in self.messages {
             let (prefix, color) = match msg.role.as_str() {
-                "user"      => ("▶ Tú",   user_color),
-                "assistant" => ("◀ IA",   ai_color),
-                "tool"      => ("⚙ Tool", tool_color),
-                _           => ("  ?",    dim),
+                "user" => ("▶ Tú", user_color),
+                "assistant" => ("◀ IA", ai_color),
+                "tool" => ("⚙ Tool", tool_color),
+                _ => ("  ?", dim),
             };
 
-            items.push(ListItem::new(Line::from(vec![
-                Span::styled(prefix, Style::default().fg(color).add_modifier(Modifier::BOLD)),
-            ])));
+            items.push(ListItem::new(Line::from(vec![Span::styled(
+                prefix,
+                Style::default().fg(color).add_modifier(Modifier::BOLD),
+            )])));
 
             let content = if msg.is_streaming {
                 format!("{}▋", msg.content)
@@ -400,14 +480,18 @@ impl<'a> HomeWidget<'a> {
     }
 
     fn input_width(&self, area_width: u16) -> u16 {
-        (area_width * 60 / 100).max(44).min(80).min(area_width.saturating_sub(4))
+        (area_width * 60 / 100)
+            .clamp(44, 80)
+            .min(area_width.saturating_sub(4))
     }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn word_wrap(text: &str, max_w: usize) -> Vec<String> {
-    if max_w == 0 { return vec![text.to_string()]; }
+    if max_w == 0 {
+        return vec![text.to_string()];
+    }
     let mut lines = vec![];
     for paragraph in text.lines() {
         if paragraph.is_empty() {
@@ -417,7 +501,7 @@ fn word_wrap(text: &str, max_w: usize) -> Vec<String> {
         let mut current = String::new();
         for word in paragraph.split_whitespace() {
             let word_len = word.chars().count();
-            let cur_len  = current.chars().count();
+            let cur_len = current.chars().count();
             if cur_len == 0 {
                 current.push_str(word);
             } else if cur_len + 1 + word_len <= max_w {
@@ -432,14 +516,16 @@ fn word_wrap(text: &str, max_w: usize) -> Vec<String> {
             lines.push(current);
         }
     }
-    if lines.is_empty() { lines.push(String::new()); }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
     lines
 }
 
 fn capitalize(s: &str) -> String {
     let mut c = s.chars();
     match c.next() {
-        None    => String::new(),
+        None => String::new(),
         Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
     }
 }

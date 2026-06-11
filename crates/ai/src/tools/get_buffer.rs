@@ -1,11 +1,11 @@
+use super::{tool_parameters_schema, validate_tool_args, Tool};
+use crate::provider::ToolDef;
 use async_trait::async_trait;
 use color_eyre::Result;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
 use std::sync::Arc;
-use crate::provider::ToolDef;
-use super::{Tool, tool_parameters_schema, validate_tool_args};
+use tokio::sync::RwLock;
 
 /// Expone el contenido del buffer activo del editor al modelo.
 /// El contenido se inyecta desde fuera a través de `set_content`.
@@ -19,7 +19,9 @@ pub struct GetBufferArgs {}
 
 impl GetBufferTool {
     pub fn new() -> Self {
-        Self { content: Arc::new(RwLock::new(String::new())) }
+        Self {
+            content: Arc::new(RwLock::new(String::new())),
+        }
     }
 
     pub fn shared(&self) -> Arc<RwLock<String>> {
@@ -28,7 +30,9 @@ impl GetBufferTool {
 }
 
 impl Default for GetBufferTool {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[async_trait]
@@ -36,7 +40,9 @@ impl Tool for GetBufferTool {
     fn definition(&self) -> ToolDef {
         ToolDef {
             name: "get_buffer".into(),
-            description: "Devuelve el contenido completo del archivo abierto actualmente en el editor.".into(),
+            description:
+                "Devuelve el contenido completo del archivo abierto actualmente en el editor."
+                    .into(),
             parameters: tool_parameters_schema::<GetBufferArgs>(),
         }
     }

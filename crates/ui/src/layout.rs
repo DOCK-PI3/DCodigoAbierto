@@ -50,17 +50,9 @@ pub fn main_layout(area: Rect, sidebar_visible: bool, chat_visible: bool) -> Mai
             Constraint::Percentage(34),
             Constraint::Percentage(38),
         ],
-        (true, false) => vec![
-            Constraint::Percentage(28),
-            Constraint::Min(1),
-        ],
-        (false, true) => vec![
-            Constraint::Percentage(62),
-            Constraint::Percentage(38),
-        ],
-        (false, false) => vec![
-            Constraint::Min(1),
-        ],
+        (true, false) => vec![Constraint::Percentage(28), Constraint::Min(1)],
+        (false, true) => vec![Constraint::Percentage(62), Constraint::Percentage(38)],
+        (false, false) => vec![Constraint::Min(1)],
     };
 
     let cols = Layout::default()
@@ -69,10 +61,10 @@ pub fn main_layout(area: Rect, sidebar_visible: bool, chat_visible: bool) -> Mai
         .split(content_area);
 
     let (sidebar_area, center_area, chat_area) = match (sidebar_visible, chat_visible) {
-        (true, true)  => (Some(cols[0]), cols[1], Some(cols[2])),
+        (true, true) => (Some(cols[0]), cols[1], Some(cols[2])),
         (true, false) => (Some(cols[0]), cols[1], None),
-        (false, true) => (None,          cols[0], Some(cols[1])),
-        (false, false) => (None,         cols[0], None),
+        (false, true) => (None, cols[0], Some(cols[1])),
+        (false, false) => (None, cols[0], None),
     };
 
     let (tabbar, editor) = split_editor_with_tabbar(center_area);

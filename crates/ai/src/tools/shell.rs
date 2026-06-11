@@ -1,9 +1,9 @@
+use super::{tool_parameters_schema, validate_tool_args, Tool};
+use crate::provider::ToolDef;
 use async_trait::async_trait;
-use color_eyre::{Result, eyre::eyre};
+use color_eyre::{eyre::eyre, Result};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use crate::provider::ToolDef;
-use super::{Tool, tool_parameters_schema, validate_tool_args};
 
 /// Encuentra el límite de carácter UTF-8 más cercano hacia atrás desde `pos`.
 fn find_char_boundary(s: &str, pos: usize) -> usize {
@@ -45,12 +45,15 @@ impl Tool for ShellTool {
                           NUNCA uses shell para: leer archivos (usa read_file), \
                           listar directorios (usa list_dir), buscar texto (usa grep), \
                           encontrar archivos (usa glob). Esas herramientas son más rápidas \
-                          y no requieren confirmación.".into(),
+                          y no requieren confirmación."
+                .into(),
             parameters: tool_parameters_schema::<ShellArgs>(),
         }
     }
 
-    fn requires_approval(&self) -> bool { true }
+    fn requires_approval(&self) -> bool {
+        true
+    }
 
     async fn execute(&self, args: &serde_json::Value) -> Result<String> {
         let args: ShellArgs = validate_tool_args("shell", args)?;
@@ -68,21 +71,31 @@ impl Tool for ShellTool {
         };
         let mut cmd = tokio::process::Command::new(shell);
         cmd.arg(flag)
-           .arg(&args.command)
-           .stdout(std::process::Stdio::piped())
-           .stderr(std::process::Stdio::piped());
+            .arg(&args.command)
+            .kill_on_drop(true)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
 
         if let Some(cwd) = args.cwd.as_deref() {
+            let cwd_path = std::path::Path::new(cwd);
+            if !cwd_path.is_dir() {
+                return Err(eyre!(
+                    "shell: cwd '{}' no existe o no es un directorio",
+                    cwd
+                ));
+            }
             cmd.current_dir(cwd);
         }
 
-        let child = cmd.spawn()
+        let child = cmd
+            .spawn()
             .map_err(|error| eyre!("shell: error al lanzar proceso: {}", error))?;
 
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(timeout_secs),
             child.wait_with_output(),
-        ).await
+        )
+        .await
         .map_err(|_| eyre!("shell: timeout despues de {}s", timeout_secs))?
         .map_err(|error| eyre!("shell: error esperando proceso: {}", error))?;
 
@@ -91,9 +104,13 @@ impl Tool for ShellTool {
         let exit = output.status.code().unwrap_or(-1);
 
         let mut result = String::new();
-        if !stdout.is_empty() { result.push_str(&stdout); }
+        if !stdout.is_empty() {
+            result.push_str(&stdout);
+        }
         if !stderr.is_empty() {
-            if !result.is_empty() { result.push('\n'); }
+            if !result.is_empty() {
+                result.push('\n');
+            }
             result.push_str("[stderr]\n");
             result.push_str(&stderr);
         }
@@ -110,8 +127,10 @@ impl Tool for ShellTool {
             let tail_start = find_char_boundary(&result, raw_tail.max(head_bound + 1024));
             let head = &result[..head_bound];
             let tail = &result[tail_start..];
-            Ok(format!("{head}\n[... {:.1} KB omitidos ...]\n{tail}\n[exit: {exit}]",
-                (result.len() - MAX_OUTPUT) as f64 / 1024.0))
+            Ok(format!(
+                "{head}\n[... {:.1} KB omitidos ...]\n{tail}\n[exit: {exit}]",
+                (result.len() - MAX_OUTPUT) as f64 / 1024.0
+            ))
         } else {
             Ok(result)
         }

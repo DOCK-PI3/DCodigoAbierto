@@ -78,57 +78,77 @@ struct ModelsResponse {
 }
 
 fn build_messages(messages: &[AiMessage]) -> Vec<serde_json::Value> {
-    messages.iter().map(|m| {
-        let role = match m.role {
-            AiRole::System    => "system",
-            AiRole::User      => "user",
-            AiRole::Assistant => "assistant",
-            AiRole::Tool      => "tool",
-        };
-        if let Some(tr) = &m.tool_result {
-            serde_json::json!({
-                "role": "tool",
-                "tool_call_id": tr.call_id,
-                "content": tr.content,
-            })
-        } else if !m.tool_calls.is_empty() {
-            let calls: Vec<_> = m.tool_calls.iter().map(|tc| serde_json::json!({
-                "id": tc.id,
-                "type": "function",
-                "function": { "name": tc.name, "arguments": tc.arguments.to_string() }
-            })).collect();
-            serde_json::json!({
-                "role": role,
-                "content": serde_json::Value::Null,
-                "tool_calls": calls,
-            })
-        } else {
-            serde_json::json!({ "role": role, "content": m.content })
-        }
-    }).collect()
+    messages
+        .iter()
+        .map(|m| {
+            let role = match m.role {
+                AiRole::System => "system",
+                AiRole::User => "user",
+                AiRole::Assistant => "assistant",
+                AiRole::Tool => "tool",
+            };
+            if let Some(tr) = &m.tool_result {
+                serde_json::json!({
+                    "role": "tool",
+                    "tool_call_id": tr.call_id,
+                    "content": tr.content,
+                })
+            } else if !m.tool_calls.is_empty() {
+                let calls: Vec<_> = m
+                    .tool_calls
+                    .iter()
+                    .map(|tc| {
+                        serde_json::json!({
+                            "id": tc.id,
+                            "type": "function",
+                            "function": { "name": tc.name, "arguments": tc.arguments.to_string() }
+                        })
+                    })
+                    .collect();
+                serde_json::json!({
+                    "role": role,
+                    "content": serde_json::Value::Null,
+                    "tool_calls": calls,
+                })
+            } else {
+                serde_json::json!({ "role": role, "content": m.content })
+            }
+        })
+        .collect()
 }
 
 fn build_tools(tools: &[ToolDef]) -> Vec<serde_json::Value> {
-    tools.iter().map(|t| serde_json::json!({
-        "type": "function",
-        "function": {
-            "name": t.name,
-            "description": t.description,
-            "parameters": t.parameters,
-        }
-    })).collect()
+    tools
+        .iter()
+        .map(|t| {
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters,
+                }
+            })
+        })
+        .collect()
 }
 
 #[async_trait]
 impl AiProvider for OpenAiProvider {
-    fn name(&self) -> &str { "openai" }
+    fn name(&self) -> &str {
+        "openai"
+    }
 
     async fn list_models(&self) -> Result<Vec<String>> {
         let url = format!("{}/v1/models", self.base_url);
-        let resp: ModelsResponse = self.client
+        let resp: ModelsResponse = self
+            .client
             .get(&url)
             .bearer_auth(&self.api_key)
-            .send().await?.json().await?;
+            .send()
+            .await?
+            .json()
+            .await?;
         let mut models: Vec<_> = resp.data.into_iter().map(|m| m.id).collect();
         models.sort();
         Ok(models)
@@ -161,11 +181,13 @@ impl AiProvider for OpenAiProvider {
 
         debug!("openai chat_stream → {url}");
 
-        let resp = self.client
+        let resp = self
+            .client
             .post(&url)
             .bearer_auth(&self.api_key)
             .json(&body)
-            .send().await?;
+            .send()
+            .await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -175,6 +197,7 @@ impl AiProvider for OpenAiProvider {
         }
 
         let mut stream = resp.bytes_stream();
+        let mut stream_buffer = String::new();
 
         // Buffers para reconstruir tool calls (pueden llegar fragmentados)
         let mut tc_ids: Vec<Option<String>> = vec![];
@@ -189,12 +212,16 @@ impl AiProvider for OpenAiProvider {
             tx: &UnboundedSender<AiEvent>,
         ) {
             for (i, name) in tc_names.iter().enumerate() {
-                if name.is_empty() { continue; }
-                let id = tc_ids.get(i).and_then(|x| x.clone())
+                if name.is_empty() {
+                    continue;
+                }
+                let id = tc_ids
+                    .get(i)
+                    .and_then(|x| x.clone())
                     .unwrap_or_else(|| format!("call_{i}"));
-                let args: serde_json::Value = serde_json::from_str(
-                    tc_args.get(i).map(|s| s.as_str()).unwrap_or("{}"),
-                ).unwrap_or(serde_json::json!({}));
+                let args: serde_json::Value =
+                    serde_json::from_str(tc_args.get(i).map(|s| s.as_str()).unwrap_or("{}"))
+                        .unwrap_or(serde_json::json!({}));
                 let _ = tx.send(AiEvent::ToolCallRequest(ToolCall {
                     id,
                     name: name.clone(),
@@ -217,8 +244,8 @@ impl AiProvider for OpenAiProvider {
                 }
             };
 
-            for line in std::str::from_utf8(&bytes).unwrap_or("").lines() {
-                let line = line.trim();
+            for line in drain_complete_lines(&mut stream_buffer, &bytes) {
+                let line = line.trim().to_string();
                 if line == "data: [DONE]" {
                     flush_tool_calls(&mut tc_ids, &mut tc_names, &mut tc_args, &tx);
                     let _ = tx.send(AiEvent::Done);
@@ -228,7 +255,7 @@ impl AiProvider for OpenAiProvider {
                     continue;
                 }
 
-                let data = line.strip_prefix("data: ").unwrap_or(line);
+                let data = line.strip_prefix("data: ").unwrap_or(line.as_str());
                 match serde_json::from_str::<StreamChunk>(data) {
                     Ok(sc) => {
                         for choice in &sc.choices {
@@ -258,8 +285,9 @@ impl AiProvider for OpenAiProvider {
                                     }
                                 }
                             }
-                            if choice.finish_reason.as_deref() == Some("stop") ||
-                               choice.finish_reason.as_deref() == Some("tool_calls") {
+                            if choice.finish_reason.as_deref() == Some("stop")
+                                || choice.finish_reason.as_deref() == Some("tool_calls")
+                            {
                                 // done handled by [DONE] line
                             }
                         }
@@ -271,10 +299,77 @@ impl AiProvider for OpenAiProvider {
             }
         }
 
+        for line in drain_remaining_line(&mut stream_buffer) {
+            let line = line.trim().to_string();
+            if line == "data: [DONE]" {
+                flush_tool_calls(&mut tc_ids, &mut tc_names, &mut tc_args, &tx);
+                let _ = tx.send(AiEvent::Done);
+                return Ok(());
+            }
+            if line.is_empty() {
+                continue;
+            }
+            let data = line.strip_prefix("data: ").unwrap_or(line.as_str());
+            match serde_json::from_str::<StreamChunk>(data) {
+                Ok(sc) => {
+                    for choice in &sc.choices {
+                        if let Some(text) = &choice.delta.content {
+                            if !text.is_empty() {
+                                let _ = tx.send(AiEvent::Chunk(text.clone()));
+                            }
+                        }
+                        if let Some(tcs) = &choice.delta.tool_calls {
+                            for dtc in tcs {
+                                let idx = dtc.index;
+                                while tc_names.len() <= idx {
+                                    tc_names.push(String::new());
+                                    tc_args.push(String::new());
+                                    tc_ids.push(None);
+                                }
+                                if let Some(id) = &dtc.id {
+                                    tc_ids[idx] = Some(id.clone());
+                                }
+                                if let Some(f) = &dtc.function {
+                                    if let Some(n) = &f.name {
+                                        tc_names[idx].push_str(n);
+                                    }
+                                    if let Some(a) = &f.arguments {
+                                        tc_args[idx].push_str(a);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    debug!("openai parse error: {e} | data: {data}");
+                }
+            }
+        }
+
         // Flush tool calls pendientes que no se hayan enviado (stream cerrado sin [DONE])
         flush_tool_calls(&mut tc_ids, &mut tc_names, &mut tc_args, &tx);
 
         let _ = tx.send(AiEvent::Done);
         Ok(())
+    }
+}
+
+fn drain_complete_lines(buffer: &mut String, bytes: &[u8]) -> Vec<String> {
+    buffer.push_str(&String::from_utf8_lossy(bytes));
+    let mut lines = Vec::new();
+    while let Some(pos) = buffer.find('\n') {
+        let line: String = buffer.drain(..=pos).collect();
+        lines.push(line.trim_end_matches(['\r', '\n']).to_string());
+    }
+    lines
+}
+
+fn drain_remaining_line(buffer: &mut String) -> Vec<String> {
+    if buffer.trim().is_empty() {
+        buffer.clear();
+        Vec::new()
+    } else {
+        vec![std::mem::take(buffer)]
     }
 }

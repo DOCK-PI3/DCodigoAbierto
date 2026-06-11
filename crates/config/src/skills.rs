@@ -68,9 +68,14 @@ impl SkillsManager {
     ///
     /// `repo` tiene formato `owner/repo` (ej: `vercel-labs/skills`).
     /// Opcionalmente `skill_name` instala solo una skill específica del repo.
-    pub async fn install_from_github(&self, repo: &str, skill_name: Option<&str>) -> Result<Vec<Skill>> {
+    pub async fn install_from_github(
+        &self,
+        repo: &str,
+        skill_name: Option<&str>,
+    ) -> Result<Vec<Skill>> {
+        validate_repo_slug(repo)?;
         let repo_url = format!("https://github.com/{}.git", repo);
-        let repo_name = repo.split('/').last().unwrap_or(repo);
+        let repo_name = repo.split('/').next_back().unwrap_or(repo);
 
         // Directorio temporal para clonar
         let temp_dir = std::env::temp_dir().join(format!("dca-skill-{}", repo_name));
@@ -190,7 +195,8 @@ impl SkillsManager {
 
     /// Copia una skill al directorio de skills de DCA.
     fn copy_skill(&self, src_dir: &std::path::Path, skill: &Skill) -> Result<()> {
-        let dest_dir = self.skills_dir.join(&skill.name);
+        let safe_name = sanitize_skill_name(&skill.name)?;
+        let dest_dir = self.skills_dir.join(&safe_name);
         if dest_dir.exists() {
             let _ = std::fs::remove_dir_all(&dest_dir);
         }
@@ -202,10 +208,11 @@ impl SkillsManager {
 
     /// Elimina una skill instalada.
     pub fn remove_skill(&self, name: &str) -> Result<()> {
-        let skill_dir = self.skills_dir.join(name);
+        let safe_name = sanitize_skill_name(name)?;
+        let skill_dir = self.skills_dir.join(&safe_name);
         if skill_dir.exists() {
             std::fs::remove_dir_all(&skill_dir)?;
-            info!("Skill '{}' eliminada", name);
+            info!("Skill '{}' eliminada", safe_name);
         } else {
             return Err(color_eyre::eyre::eyre!("Skill '{}' no encontrada", name));
         }
@@ -231,6 +238,49 @@ impl SkillsManager {
 
         Ok(prompt)
     }
+}
+
+fn validate_repo_slug(repo: &str) -> Result<()> {
+    let mut parts = repo.split('/');
+    let owner = parts.next().unwrap_or_default();
+    let name = parts.next().unwrap_or_default();
+    if owner.is_empty()
+        || name.is_empty()
+        || parts.next().is_some()
+        || owner == "."
+        || owner == ".."
+        || name == "."
+        || name == ".."
+        || !owner.chars().all(is_safe_repo_char)
+        || !name.chars().all(is_safe_repo_char)
+    {
+        return Err(color_eyre::eyre::eyre!(
+            "Repositorio invalido '{}'. Usa el formato owner/repo.",
+            repo
+        ));
+    }
+    Ok(())
+}
+
+fn is_safe_repo_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == '.'
+}
+
+fn sanitize_skill_name(name: &str) -> Result<String> {
+    let safe = name.trim();
+    if safe.is_empty()
+        || safe.contains('/')
+        || safe.contains('\\')
+        || safe == "."
+        || safe == ".."
+        || safe.chars().any(|ch| ch.is_control())
+    {
+        return Err(color_eyre::eyre::eyre!(
+            "Nombre de skill invalido: '{}'",
+            name
+        ));
+    }
+    Ok(safe.to_string())
 }
 
 /// Parsea un archivo SKILL.md y extrae nombre, descripción e instrucciones.
@@ -289,10 +339,7 @@ fn truncate_instructions(text: &str) -> String {
         while bound > 0 && !text.is_char_boundary(bound) {
             bound -= 1;
         }
-        format!(
-            "{}...\n[Instrucciones truncadas a 8 KB]",
-            &text[..bound]
-        )
+        format!("{}...\n[Instrucciones truncadas a 8 KB]", &text[..bound])
     }
 }
 

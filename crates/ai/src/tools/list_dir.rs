@@ -1,9 +1,9 @@
+use super::{tool_parameters_schema, validate_tool_args, Tool};
+use crate::provider::ToolDef;
 use async_trait::async_trait;
 use color_eyre::Result;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use crate::provider::ToolDef;
-use super::{Tool, tool_parameters_schema, validate_tool_args};
 
 pub struct ListDirTool;
 
@@ -39,7 +39,9 @@ impl Tool for ListDirTool {
     }
 
     // No requiere aprobación — solo lectura
-    fn requires_approval(&self) -> bool { false }
+    fn requires_approval(&self) -> bool {
+        false
+    }
 
     async fn execute(&self, args: &serde_json::Value) -> Result<String> {
         let args: ListDirArgs = validate_tool_args("list_dir", args)?;
@@ -49,7 +51,8 @@ impl Tool for ListDirTool {
 
         let result = tokio::task::spawn_blocking(move || {
             list_recursive(std::path::Path::new(&path_for_worker), depth, 0)
-        }).await??;
+        })
+        .await??;
 
         if result.is_empty() {
             return Ok(format!("El directorio '{}' está vacío.", path));
@@ -59,11 +62,7 @@ impl Tool for ListDirTool {
     }
 }
 
-fn list_recursive(
-    dir: &std::path::Path,
-    max_depth: usize,
-    current_depth: usize,
-) -> Result<String> {
+fn list_recursive(dir: &std::path::Path, max_depth: usize, current_depth: usize) -> Result<String> {
     let mut entries: Vec<std::fs::DirEntry> = std::fs::read_dir(dir)
         .map_err(|e| color_eyre::eyre::eyre!("No se pudo leer '{}': {e}", dir.display()))?
         .filter_map(|e| e.ok())
@@ -86,15 +85,17 @@ fn list_recursive(
 
     for entry in &entries {
         count += 1;
-        if count > 200 { 
+        if count > 200 {
             out.push_str(&format!("{indent}[… y {} más]\n", entries.len() - 199));
             break;
         }
 
         let name = entry.file_name().to_string_lossy().to_string();
         // Ignorar directorios ocultos y temporales comunes
-        if name.starts_with('.') && current_depth == 0 
-           && (name == ".git" || name == ".cache" || name == "node_modules") {
+        if name.starts_with('.')
+            && current_depth == 0
+            && (name == ".git" || name == ".cache" || name == "node_modules")
+        {
             continue;
         }
 

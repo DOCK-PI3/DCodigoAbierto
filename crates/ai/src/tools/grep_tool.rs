@@ -1,10 +1,10 @@
+use super::{tool_parameters_schema, validate_tool_args, Tool};
+use crate::provider::ToolDef;
 use async_trait::async_trait;
-use color_eyre::{Result, eyre::eyre};
+use color_eyre::{eyre::eyre, Result};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::io::BufRead;
-use crate::provider::ToolDef;
-use super::{Tool, tool_parameters_schema, validate_tool_args};
 
 pub struct GrepTool;
 
@@ -33,7 +33,7 @@ impl Tool for GrepTool {
     fn definition(&self) -> ToolDef {
         ToolDef {
             name: "grep".into(),
-            description: "Busca texto (o regex) en archivos del proyecto. Devuelve las líneas que coinciden con su número y ruta (máx 100 resultados).".into(),
+            description: "Busca texto literal en archivos del proyecto. Devuelve las líneas que coinciden con su número y ruta (máx 100 resultados).".into(),
             parameters: tool_parameters_schema::<GrepArgs>(),
         }
     }
@@ -51,7 +51,8 @@ impl Tool for GrepTool {
 
         let results = tokio::task::spawn_blocking(move || {
             grep_files(&pattern, &search_path, case_sensitive, include.as_deref())
-        }).await??;
+        })
+        .await??;
 
         if results.is_empty() {
             return Ok("No se encontraron coincidencias.".into());
@@ -75,6 +76,9 @@ fn grep_files(
 
     let mut results = vec![];
     let root = std::path::Path::new(path);
+    if !root.exists() {
+        return Err(eyre!("grep: la ruta '{}' no existe", path));
+    }
 
     if root.is_file() {
         grep_file(root, &re, include, &mut results);
@@ -91,24 +95,34 @@ fn grep_file(
     include: Option<&str>,
     out: &mut Vec<String>,
 ) {
-    if out.len() >= 100 { return; }
+    if out.len() >= 100 {
+        return;
+    }
 
     // Filtro de extensión
     if let Some(inc) = include {
         let name = path.file_name().unwrap_or_default().to_string_lossy();
-        if !glob_ext_match(inc, &name) { return; }
+        if !glob_ext_match(inc, &name) {
+            return;
+        }
     }
 
     // Solo archivos de texto (heurística: ignora binarios >1 MB)
     if let Ok(meta) = path.metadata() {
-        if meta.len() > 1_048_576 { return; }
+        if meta.len() > 1_048_576 {
+            return;
+        }
     }
 
-    let Ok(f) = std::fs::File::open(path) else { return };
+    let Ok(f) = std::fs::File::open(path) else {
+        return;
+    };
     let reader = std::io::BufReader::new(f);
 
     for (i, line) in reader.lines().enumerate() {
-        if out.len() >= 100 { break; }
+        if out.len() >= 100 {
+            break;
+        }
         let Ok(line) = line else { break };
         if pattern.matches(&line) {
             out.push(format!("{}:{}: {}", path.display(), i + 1, line));
@@ -123,14 +137,20 @@ fn walk_grep(
     out: &mut Vec<String>,
     depth: usize,
 ) {
-    if depth > 15 || out.len() >= 100 { return; }
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    if depth > 15 || out.len() >= 100 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         // Ignorar directorios ocultos y target/
         if let Some(name) = path.file_name() {
             let n = name.to_string_lossy();
-            if n.starts_with('.') || n == "target" { continue; }
+            if n.starts_with('.') || n == "target" {
+                continue;
+            }
         }
         if path.is_dir() {
             walk_grep(&path, pattern, include, out, depth + 1);
@@ -156,11 +176,17 @@ mod regex_simple {
     }
 
     pub fn compile(p: &str) -> Pattern {
-        Pattern { text: p.to_string(), icase: false }
+        Pattern {
+            text: p.to_string(),
+            icase: false,
+        }
     }
 
     pub fn compile_icase(p: &str) -> Pattern {
-        Pattern { text: p.to_lowercase(), icase: true }
+        Pattern {
+            text: p.to_lowercase(),
+            icase: true,
+        }
     }
 
     impl Pattern {

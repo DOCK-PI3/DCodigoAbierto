@@ -30,13 +30,16 @@ pub fn update(state: &mut AppState, msg: AppMessage) -> Option<Command> {
         }
         AppMessage::ConfigReload(_) => None, // manejado en app.rs
         AppMessage::FileTreeLoaded(tree) => {
-            state.fuzzy_all_files = tree.iter()
+            state.fuzzy_all_files = tree
+                .iter()
                 .filter(|e| !e.is_dir)
                 .map(|e| e.path.clone())
                 .collect();
             state.file_tree = tree;
             // Construir el motor de fuzzy finding una sola vez
-            state.fuzzy_engine = Some(std::sync::Arc::new(FuzzyEngine::new(&state.fuzzy_all_files)));
+            state.fuzzy_engine = Some(std::sync::Arc::new(FuzzyEngine::new(
+                &state.fuzzy_all_files,
+            )));
             None
         }
 
@@ -84,7 +87,11 @@ pub fn update(state: &mut AppState, msg: AppMessage) -> Option<Command> {
         }
         AppMessage::AiToolRequest { id, name, args } => {
             let _args_display = serde_json::to_string_pretty(&args).unwrap_or_default();
-            state.chat.tool_pending = Some(PendingTool { id, name: name.clone(), args });
+            state.chat.tool_pending = Some(PendingTool {
+                id,
+                name: name.clone(),
+                args,
+            });
             state.chat.messages.push(ChatMessage {
                 role: "tool".into(),
                 content: format!("⚙ Solicitando: {name} — esperando aprobación…"),
@@ -126,6 +133,16 @@ pub fn update(state: &mut AppState, msg: AppMessage) -> Option<Command> {
         }
         // Sesión sincronizada tras cada respuesta del agente (manejada en app.rs)
         AppMessage::AiSessionUpdate(_) => None,
+        AppMessage::Notice(message) => {
+            state.status_message = format!(" {message}");
+            state.chat.messages.push(ChatMessage {
+                role: "tool".into(),
+                content: message,
+                is_streaming: false,
+            });
+            state.chat.scroll = 0;
+            None
+        }
 
         // ── Themes ───────────────────────────────────────────────────────
         AppMessage::ThemeSelected(name) => {
@@ -149,7 +166,7 @@ pub fn update(state: &mut AppState, msg: AppMessage) -> Option<Command> {
 // ── Teclado ───────────────────────────────────────────────────────────────────
 
 fn handle_key(state: &mut AppState, code: KeyCode, mods: KeyModifiers) -> Option<Command> {
-    let ctrl  = mods.contains(KeyModifiers::CONTROL);
+    let ctrl = mods.contains(KeyModifiers::CONTROL);
     let shift = mods.contains(KeyModifiers::SHIFT);
 
     // Diálogo de permiso de herramienta (prioridad máxima)
@@ -268,7 +285,7 @@ fn handle_key(state: &mut AppState, code: KeyCode, mods: KeyModifiers) -> Option
                 if state.focus == Focus::Editor {
                     let line = state.buffer().current_line().to_string();
                     let _ = arboard::Clipboard::new().and_then(|mut c| c.set_text(line));
-                    let name = state.buffer().file_name.as_deref().unwrap_or("*nuevo*");
+                    let name = display_path(state.buffer().file_name.as_deref());
                     state.status_message = format!(" {name}: línea copiada al portapapeles");
                 }
                 return None;
@@ -327,28 +344,40 @@ fn handle_key(state: &mut AppState, code: KeyCode, mods: KeyModifiers) -> Option
             return None;
         }
         state.focus = match state.focus {
-            Focus::Editor  => {
-                if state.sidebar_visible { Focus::Sidebar } else if state.chat_visible { Focus::Chat } else { Focus::Editor }
+            Focus::Editor => {
+                if state.sidebar_visible {
+                    Focus::Sidebar
+                } else if state.chat_visible {
+                    Focus::Chat
+                } else {
+                    Focus::Editor
+                }
             }
             Focus::Sidebar => {
-                if state.chat_visible { Focus::Chat } else { Focus::Editor }
+                if state.chat_visible {
+                    Focus::Chat
+                } else {
+                    Focus::Editor
+                }
             }
-            Focus::Chat    => Focus::Editor,
+            Focus::Chat => Focus::Editor,
         };
         update_status(state);
         return None;
     }
 
     match state.focus {
-        Focus::Editor  => handle_editor_key(state, code),
+        Focus::Editor => handle_editor_key(state, code),
         Focus::Sidebar => handle_sidebar_key(state, code),
-        Focus::Chat    => handle_chat_key(state, code),
+        Focus::Chat => handle_chat_key(state, code),
     }
 }
 
 fn cycle_buffer(state: &mut AppState, dir: i32) {
     let n = state.buffers.len();
-    if n <= 1 { return; }
+    if n <= 1 {
+        return;
+    }
     state.active_buffer = ((state.active_buffer as i32 + dir).rem_euclid(n as i32)) as usize;
     update_status(state);
 }
@@ -360,29 +389,31 @@ fn handle_editor_key(state: &mut AppState, code: KeyCode) -> Option<Command> {
     let was_dirty = buf.dirty;
 
     match code {
-        KeyCode::Up        => buf.move_up(),
-        KeyCode::Down      => buf.move_down(),
-        KeyCode::Left      => buf.move_left(),
-        KeyCode::Right     => buf.move_right(),
-        KeyCode::Home      => buf.move_line_start(),
-        KeyCode::End       => buf.move_line_end(),
-        KeyCode::Esc       => {}
-        KeyCode::Enter     => buf.insert_newline(),
+        KeyCode::Up => buf.move_up(),
+        KeyCode::Down => buf.move_down(),
+        KeyCode::Left => buf.move_left(),
+        KeyCode::Right => buf.move_right(),
+        KeyCode::Home => buf.move_line_start(),
+        KeyCode::End => buf.move_line_end(),
+        KeyCode::Esc => {}
+        KeyCode::Enter => buf.insert_newline(),
         KeyCode::Backspace => buf.delete_char_before(),
-        KeyCode::Char(ch)  => buf.insert_char(ch),
+        KeyCode::Char(ch) => buf.insert_char(ch),
         _ => {}
     }
 
-    let row   = state.buffer().cursor.row + 1;
-    let col   = state.buffer().cursor_visual_col() + 1;
+    let row = state.buffer().cursor.row + 1;
+    let col = state.buffer().cursor_visual_col() + 1;
     let dirty = if state.buffer().dirty { " [+]" } else { "" };
-    let name  = state.buffer().file_name.as_deref().unwrap_or("*nuevo*");
-    let lsp   = lsp_indicator(&state.lsp_status);
+    let name = display_path(state.buffer().file_name.as_deref());
+    let lsp = lsp_indicator(&state.lsp_status);
     state.status_message = format!(
         " {name}{dirty}  Ln {row}, Col {col}{lsp}  |  Ctrl+S: guardar  |  Ctrl+A: chat  |  Ctrl+Q: salir"
     );
 
-    if state.buffer().dirty && (!was_dirty || matches!(code, KeyCode::Char(_) | KeyCode::Enter | KeyCode::Backspace)) {
+    if state.buffer().dirty
+        && (!was_dirty || matches!(code, KeyCode::Char(_) | KeyCode::Enter | KeyCode::Backspace))
+    {
         if let Some(path) = state.buffer().file_name.clone() {
             let text = state.buffer().lines.join("\n");
             return Some(Command::LspChange { path, text });
@@ -402,9 +433,7 @@ fn handle_sidebar_key(state: &mut AppState, code: KeyCode) -> Option<Command> {
             None
         }
         KeyCode::Down => {
-            if !state.file_tree.is_empty()
-                && state.sidebar_selected + 1 < state.file_tree.len()
-            {
+            if !state.file_tree.is_empty() && state.sidebar_selected + 1 < state.file_tree.len() {
                 state.sidebar_selected += 1;
             }
             None
@@ -416,7 +445,9 @@ fn handle_sidebar_key(state: &mut AppState, code: KeyCode) -> Option<Command> {
 
 fn open_file_from_sidebar(state: &mut AppState) -> Option<Command> {
     let entry = state.file_tree.get(state.sidebar_selected)?;
-    if entry.is_dir { return None; }
+    if entry.is_dir {
+        return None;
+    }
     let path = entry.path.clone();
     load_file_into_buffer(state, &path)
 }
@@ -458,7 +489,10 @@ fn handle_chat_key(state: &mut AppState, code: KeyCode) -> Option<Command> {
                 let byte_idx = state.chat.input_cursor.min(state.chat.input.len());
                 if byte_idx > 0 {
                     let char_start = state.chat.input[..byte_idx]
-                        .char_indices().last().map(|(i, _)| i).unwrap_or(0);
+                        .char_indices()
+                        .last()
+                        .map(|(i, _)| i)
+                        .unwrap_or(0);
                     state.chat.input.remove(char_start);
                     state.chat.input_cursor = char_start;
                 }
@@ -540,10 +574,8 @@ fn handle_model_selector_key(state: &mut AppState, code: KeyCode) -> Option<Comm
         KeyCode::Esc => {
             state.model_selector_active = false;
         }
-        KeyCode::Up => {
-            if state.model_selector_selected > 0 {
-                state.model_selector_selected -= 1;
-            }
+        KeyCode::Up if state.model_selector_selected > 0 => {
+            state.model_selector_selected -= 1;
         }
         KeyCode::Down => {
             let max = state.model_selector_models.len().saturating_sub(1);
@@ -552,7 +584,11 @@ fn handle_model_selector_key(state: &mut AppState, code: KeyCode) -> Option<Comm
             }
         }
         KeyCode::Enter => {
-            if let Some(model) = state.model_selector_models.get(state.model_selector_selected).cloned() {
+            if let Some(model) = state
+                .model_selector_models
+                .get(state.model_selector_selected)
+                .cloned()
+            {
                 state.chat.selected_model = model;
                 state.model_selector_active = false;
                 update_status(state);
@@ -568,10 +604,8 @@ fn handle_theme_selector_key(state: &mut AppState, code: KeyCode) -> Option<Comm
         KeyCode::Esc => {
             state.theme_selector_active = false;
         }
-        KeyCode::Up => {
-            if state.theme_selector_selected > 0 {
-                state.theme_selector_selected -= 1;
-            }
+        KeyCode::Up if state.theme_selector_selected > 0 => {
+            state.theme_selector_selected -= 1;
         }
         KeyCode::Down => {
             let max = state.available_themes.len().saturating_sub(1);
@@ -580,7 +614,11 @@ fn handle_theme_selector_key(state: &mut AppState, code: KeyCode) -> Option<Comm
             }
         }
         KeyCode::Enter => {
-            if let Some(theme) = state.available_themes.get(state.theme_selector_selected).cloned() {
+            if let Some(theme) = state
+                .available_themes
+                .get(state.theme_selector_selected)
+                .cloned()
+            {
                 let name = theme.name.clone();
                 state.theme_selector_active = false;
                 return Some(Command::ChangeTheme(name));
@@ -600,7 +638,10 @@ fn load_file_into_buffer(state: &mut AppState, path: &str) -> Option<Command> {
             state.open_buffer(path, &content);
             state.focus = Focus::Editor;
             update_status(state);
-            Some(Command::LspOpen { path: path.to_owned(), text })
+            Some(Command::LspOpen {
+                path: path.to_owned(),
+                text,
+            })
         }
         Err(e) => {
             state.status_message = format!(" Error abriendo {path}: {e}");
@@ -641,7 +682,10 @@ fn handle_completion_key(state: &mut AppState, code: KeyCode) -> Option<Command>
 
 fn accept_completion(state: &mut AppState) {
     if let Some(entry) = state.completions.get(state.completion_selected) {
-        let text = entry.insert_text.clone().unwrap_or_else(|| entry.label.clone());
+        let text = entry
+            .insert_text
+            .clone()
+            .unwrap_or_else(|| entry.label.clone());
         for ch in text.chars() {
             state.buffer_mut().insert_char(ch);
         }
@@ -658,22 +702,18 @@ fn handle_references_key(state: &mut AppState, code: KeyCode) -> Option<Command>
         KeyCode::Esc => {
             state.show_references = false;
         }
-        KeyCode::Up => {
-            if state.references_selected > 0 {
-                state.references_selected -= 1;
-            }
+        KeyCode::Up if state.references_selected > 0 => {
+            state.references_selected -= 1;
         }
-        KeyCode::Down => {
-            if state.references_selected + 1 < state.references.len() {
-                state.references_selected += 1;
-            }
+        KeyCode::Down if state.references_selected + 1 < state.references.len() => {
+            state.references_selected += 1;
         }
         KeyCode::Enter => {
             if let Some(loc) = state.references.get(state.references_selected).cloned() {
                 let path = loc.path.clone();
                 let line = loc.line as usize;
-                let col  = loc.col  as usize;
-                let cmd  = load_file_into_buffer(state, &path);
+                let col = loc.col as usize;
+                let cmd = load_file_into_buffer(state, &path);
                 state.buffer_mut().cursor.row = line;
                 state.buffer_mut().cursor.col = col;
                 state.show_references = false;
@@ -700,15 +740,11 @@ fn handle_fuzzy_key(state: &mut AppState, code: KeyCode, _mods: KeyModifiers) ->
             state.fuzzy_active = false;
             state.fuzzy_query.clear();
         }
-        KeyCode::Up => {
-            if state.fuzzy_selected > 0 {
-                state.fuzzy_selected -= 1;
-            }
+        KeyCode::Up if state.fuzzy_selected > 0 => {
+            state.fuzzy_selected -= 1;
         }
-        KeyCode::Down => {
-            if state.fuzzy_selected + 1 < state.fuzzy_results.len() {
-                state.fuzzy_selected += 1;
-            }
+        KeyCode::Down if state.fuzzy_selected + 1 < state.fuzzy_results.len() => {
+            state.fuzzy_selected += 1;
         }
         KeyCode::Enter => {
             if let Some(path) = state.fuzzy_results.get(state.fuzzy_selected).cloned() {
@@ -761,7 +797,7 @@ fn handle_lsp(state: &mut AppState, event: LspEvent) {
             if let Some(loc) = maybe_loc {
                 let path = loc.path.clone();
                 let line = loc.line as usize;
-                let col  = loc.col  as usize;
+                let col = loc.col as usize;
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     state.open_buffer(&path, &content);
                     state.buffer_mut().cursor.row = line;
@@ -777,15 +813,20 @@ fn handle_lsp(state: &mut AppState, event: LspEvent) {
             if locs.is_empty() {
                 state.status_message = " LSP: sin referencias".to_string();
             } else {
-                let enriched = locs.into_iter().map(|mut loc| {
-                    if loc.preview.is_none() {
-                        if let Ok(content) = std::fs::read_to_string(&loc.path) {
-                            loc.preview = content.lines().nth(loc.line as usize)
-                                .map(|s| s.trim().to_owned());
+                let enriched = locs
+                    .into_iter()
+                    .map(|mut loc| {
+                        if loc.preview.is_none() {
+                            if let Ok(content) = std::fs::read_to_string(&loc.path) {
+                                loc.preview = content
+                                    .lines()
+                                    .nth(loc.line as usize)
+                                    .map(|s| s.trim().to_owned());
+                            }
                         }
-                    }
-                    loc
-                }).collect();
+                        loc
+                    })
+                    .collect();
                 state.references = enriched;
                 state.references_selected = 0;
                 state.show_references = true;
@@ -802,19 +843,24 @@ fn handle_lsp(state: &mut AppState, event: LspEvent) {
 
 fn update_status(state: &mut AppState) {
     let focus_label = match state.focus {
-        Focus::Editor  => "Editor",
+        Focus::Editor => "Editor",
         Focus::Sidebar => "Sidebar",
-        Focus::Chat    => "Chat",
+        Focus::Chat => "Chat",
     };
-    let tabs: String = state.buffers.iter().enumerate().map(|(i, b)| {
-        let name = b.file_name.as_deref().unwrap_or("*nuevo*");
-        let dirty = if b.dirty { "+" } else { "" };
-        if i == state.active_buffer {
-            format!("[{name}{dirty}] ")
-        } else {
-            format!(" {name}{dirty}  ")
-        }
-    }).collect();
+    let tabs: String = state
+        .buffers
+        .iter()
+        .enumerate()
+        .map(|(i, b)| {
+            let name = display_path(b.file_name.as_deref());
+            let dirty = if b.dirty { "+" } else { "" };
+            if i == state.active_buffer {
+                format!("[{name}{dirty}] ")
+            } else {
+                format!(" {name}{dirty}  ")
+            }
+        })
+        .collect();
     let lsp = lsp_indicator(&state.lsp_status);
     let model = if state.chat_visible && !state.chat.selected_model.is_empty() {
         format!("  AI:{}", state.chat.selected_model)
@@ -828,10 +874,10 @@ fn update_status(state: &mut AppState) {
 
 fn lsp_indicator(status: &LspStatus) -> &'static str {
     match status {
-        LspStatus::Disabled   => "",
+        LspStatus::Disabled => "",
         LspStatus::Connecting => "  LSP:…",
-        LspStatus::Ready(_)   => "  LSP:●",
-        LspStatus::Error(_)   => "  LSP:✗",
+        LspStatus::Ready(_) => "  LSP:●",
+        LspStatus::Error(_) => "  LSP:✗",
     }
 }
 
@@ -845,10 +891,8 @@ fn handle_palette_key(state: &mut AppState, code: KeyCode, _mods: KeyModifiers) 
             state.palette_query_cursor = 0;
             state.palette_selected = 0;
         }
-        KeyCode::Up => {
-            if state.palette_selected > 0 {
-                state.palette_selected -= 1;
-            }
+        KeyCode::Up if state.palette_selected > 0 => {
+            state.palette_selected -= 1;
         }
         KeyCode::Down => {
             // Max items: 10 acciones fijas
@@ -860,16 +904,14 @@ fn handle_palette_key(state: &mut AppState, code: KeyCode, _mods: KeyModifiers) 
         KeyCode::Enter => {
             return palette_execute(state);
         }
-        KeyCode::Backspace => {
-            if state.palette_query_cursor > 0 {
-                // Eliminar el carácter UTF-8 anterior, no solo el último byte
-                let mut pos = state.palette_query_cursor - 1;
-                while pos > 0 && !state.palette_query.is_char_boundary(pos) {
-                    pos -= 1;
-                }
-                state.palette_query.remove(pos);
-                state.palette_query_cursor = pos;
+        KeyCode::Backspace if state.palette_query_cursor > 0 => {
+            // Eliminar el carácter UTF-8 anterior, no solo el último byte
+            let mut pos = state.palette_query_cursor - 1;
+            while pos > 0 && !state.palette_query.is_char_boundary(pos) {
+                pos -= 1;
             }
+            state.palette_query.remove(pos);
+            state.palette_query_cursor = pos;
         }
         KeyCode::Char(ch) => {
             let cur = state.palette_query_cursor;
@@ -909,39 +951,57 @@ fn palette_execute(state: &mut AppState) -> Option<Command> {
 
     // Índices alineados con build_palette_items() en render.rs
     match state.palette_selected {
-        0 => { open_fuzzy(state); None }          // Abrir archivo…
-        1 => {                                      // Nueva sesión de chat
+        0 => {
+            open_fuzzy(state);
+            None
+        } // Abrir archivo…
+        1 => {
+            // Nueva sesión de chat
             state.chat.messages.clear();
             state.chat.tokens_generated = 0;
             state.chat.session_name = new_session_label();
             update_status(state);
             None
         }
-        2 => {                                      // Inyectar buffer como contexto
-            if state.chat_visible { Some(Command::AiInjectBuffer) } else { None }
+        2 => {
+            // Inyectar buffer como contexto
+            if state.chat_visible {
+                Some(Command::AiInjectBuffer)
+            } else {
+                None
+            }
         }
-        3 => {                                      // Cambiar modelo de IA…
+        3 => {
+            // Cambiar modelo de IA…
             state.model_selector_active = true;
             if state.model_selector_models.is_empty() {
                 Some(Command::AiLoadModels)
-            } else { None }
+            } else {
+                None
+            }
         }
-        4 => {                                      // Seleccionar tema…
+        4 => {
+            // Seleccionar tema…
             state.theme_selector_active = true;
             state.theme_selector_selected = 0;
             None
         }
-        5 => {                                      // Cambiar a Plan/Build
+        5 => {
+            // Cambiar a Plan/Build
             state.chat.mode = state.chat.mode.toggle();
             update_status(state);
             None
         }
-        6 => {                                      // Abortar generación
+        6 => {
+            // Abortar generación
             if state.chat.streaming {
                 Some(Command::AiAbortStream)
-            } else { None }
+            } else {
+                None
+            }
         }
-        7 => {                                      // Salir
+        7 => {
+            // Salir
             state.quit = true;
             None
         }
@@ -951,6 +1011,19 @@ fn palette_execute(state: &mut AppState) -> Option<Command> {
 
 fn new_session_label() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let s = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let s = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     format!("Sesión {s}")
+}
+
+fn display_path(path: Option<&str>) -> String {
+    path.and_then(|p| {
+        std::path::Path::new(p)
+            .file_name()
+            .and_then(|name| name.to_str())
+    })
+    .unwrap_or("*nuevo*")
+    .to_string()
 }

@@ -32,8 +32,12 @@ pub struct AiConfig {
     pub web_enabled: bool,
 }
 
-fn default_temperature() -> f32 { 0.7 }
-fn default_top_p() -> f32 { 0.95 }
+fn default_temperature() -> f32 {
+    0.7
+}
+fn default_top_p() -> f32 {
+    0.95
+}
 
 impl Default for AiConfig {
     fn default() -> Self {
@@ -42,9 +46,9 @@ impl Default for AiConfig {
             base_url: String::from("http://localhost:11434"),
             api_key: String::new(),
             model: String::from("llama3.2"),
-                        // DCA-IA-IMPROVEMENT: Prompt estructurado con reglas de no-uso y few-shot.
-                        system_prompt: String::from(
-                                r#"[ROL]
+            // DCA-IA-IMPROVEMENT: Prompt estructurado con reglas de no-uso y few-shot.
+            system_prompt: String::from(
+                r#"[ROL]
 Eres DCA, asistente de programacion en terminal para el editor DCodigoAbierto.
 
 ## CUANDO NO USAR HERRAMIENTAS
@@ -98,7 +102,7 @@ Reconoce el error, usa el `hint` para corregirlo o pregunta al usuario. Nunca re
 - Si no necesitas herramientas, responde directamente.
 - Si necesitas contexto adicional, pidelo antes de actuar.
 "#,
-                        ),
+            ),
             max_tokens: 8192,
             temperature: 0.7,
             top_p: 0.95,

@@ -58,8 +58,7 @@ async fn main() -> Result<()> {
     }
 
     // Configurar tracing
-    let filter = EnvFilter::try_new(&cli.log_level)
-        .unwrap_or_else(|_| EnvFilter::new("warn"));
+    let filter = EnvFilter::try_new(&cli.log_level).unwrap_or_else(|_| EnvFilter::new("warn"));
 
     if let Some(log_path) = &cli.log_file {
         let log_file = std::fs::OpenOptions::new()

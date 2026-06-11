@@ -8,7 +8,7 @@ use crate::{
     palette::Palette,
     widgets::{
         chat::ChatWidget,
-        command_palette::{CommandPaletteWidget, PaletteItem, PaletteItemKind, PaletteActionId},
+        command_palette::{CommandPaletteWidget, PaletteActionId, PaletteItem, PaletteItemKind},
         completion::{completion_popup_rect, CompletionWidget},
         editor::EditorWidget,
         fuzzy::{fuzzy_popup_rect, FuzzyWidget},
@@ -109,7 +109,9 @@ pub fn render(frame: &mut Frame, view: &ViewState<'_>, theme: &Theme) {
         }
 
         if view.theme_selector_active && !view.available_theme_names.is_empty() {
-            let themes: Vec<(String, String, String)> = view.available_theme_names.iter()
+            let themes: Vec<(String, String, String)> = view
+                .available_theme_names
+                .iter()
                 .zip(view.available_theme_accents.iter())
                 .map(|(n, (a, b))| (n.clone(), a.clone(), b.clone()))
                 .collect();
@@ -268,7 +270,11 @@ pub fn render(frame: &mut Frame, view: &ViewState<'_>, theme: &Theme) {
             format!("{n}").len() as u16 + 4
         };
         let editor_inner_x = layout.editor.x + 1 + gutter_width;
-        let cursor_row_offset = view.buffer.cursor.row.saturating_sub(view.buffer.scroll_row) as u16;
+        let cursor_row_offset = view
+            .buffer
+            .cursor
+            .row
+            .saturating_sub(view.buffer.scroll_row) as u16;
         let cursor_col_offset = view.buffer.cursor_visual_col() as u16;
         let screen_row = layout.editor.y + 1 + cursor_row_offset;
         let screen_col = editor_inner_x + cursor_col_offset;
@@ -328,7 +334,9 @@ pub fn render(frame: &mut Frame, view: &ViewState<'_>, theme: &Theme) {
 
     // Selector de tema
     if view.theme_selector_active && !view.available_theme_names.is_empty() {
-        let themes: Vec<(String, String, String)> = view.available_theme_names.iter()
+        let themes: Vec<(String, String, String)> = view
+            .available_theme_names
+            .iter()
             .zip(view.available_theme_accents.iter())
             .map(|(n, (a, b))| (n.clone(), a.clone(), b.clone()))
             .collect();
@@ -367,45 +375,80 @@ fn build_palette_items<'a>(view: &ViewState<'a>) -> Vec<PaletteItem> {
     };
     vec![
         // ── Archivos ──
-        PaletteItem { kind: PaletteItemKind::Section { label: "Archivos" }, label: String::new() },
         PaletteItem {
-            kind: PaletteItemKind::Action { id: PaletteActionId::OpenEditor, shortcut: "ctrl+p" },
+            kind: PaletteItemKind::Section { label: "Archivos" },
+            label: String::new(),
+        },
+        PaletteItem {
+            kind: PaletteItemKind::Action {
+                id: PaletteActionId::OpenEditor,
+                shortcut: "ctrl+p",
+            },
             label: "Abrir archivo…".to_string(),
         },
         // ── Sesión ──
-        PaletteItem { kind: PaletteItemKind::Section { label: "Sesión" }, label: String::new() },
         PaletteItem {
-            kind: PaletteItemKind::Action { id: PaletteActionId::NewSession, shortcut: "" },
+            kind: PaletteItemKind::Section { label: "Sesión" },
+            label: String::new(),
+        },
+        PaletteItem {
+            kind: PaletteItemKind::Action {
+                id: PaletteActionId::NewSession,
+                shortcut: "",
+            },
             label: "Nueva sesión de chat".to_string(),
         },
         PaletteItem {
-            kind: PaletteItemKind::Action { id: PaletteActionId::InjectBuffer, shortcut: "ctrl+i" },
+            kind: PaletteItemKind::Action {
+                id: PaletteActionId::InjectBuffer,
+                shortcut: "ctrl+i",
+            },
             label: "Inyectar buffer como contexto".to_string(),
         },
         // ── Agente ──
-        PaletteItem { kind: PaletteItemKind::Section { label: "Agente" }, label: String::new() },
         PaletteItem {
-            kind: PaletteItemKind::Action { id: PaletteActionId::SwitchModel, shortcut: "ctrl+o" },
+            kind: PaletteItemKind::Section { label: "Agente" },
+            label: String::new(),
+        },
+        PaletteItem {
+            kind: PaletteItemKind::Action {
+                id: PaletteActionId::SwitchModel,
+                shortcut: "ctrl+o",
+            },
             label: "Cambiar modelo de IA…".to_string(),
         },
         PaletteItem {
-            kind: PaletteItemKind::Action { id: PaletteActionId::SelectTheme, shortcut: "" },
+            kind: PaletteItemKind::Action {
+                id: PaletteActionId::SelectTheme,
+                shortcut: "",
+            },
             label: "Seleccionar tema…".to_string(),
         },
         PaletteItem {
-            kind: PaletteItemKind::Action { id: PaletteActionId::ToggleMode, shortcut: "tab" },
+            kind: PaletteItemKind::Action {
+                id: PaletteActionId::ToggleMode,
+                shortcut: "tab",
+            },
             label: mode_toggle.to_string(),
         },
         // ── Sistema ──
-        PaletteItem { kind: PaletteItemKind::Section { label: "Sistema" }, label: String::new() },
         PaletteItem {
-            kind: PaletteItemKind::Action { id: PaletteActionId::AbortStream, shortcut: "ctrl+x" },
+            kind: PaletteItemKind::Section { label: "Sistema" },
+            label: String::new(),
+        },
+        PaletteItem {
+            kind: PaletteItemKind::Action {
+                id: PaletteActionId::AbortStream,
+                shortcut: "ctrl+x",
+            },
             label: "Abortar generación".to_string(),
         },
         PaletteItem {
-            kind: PaletteItemKind::Action { id: PaletteActionId::Quit, shortcut: "ctrl+q" },
+            kind: PaletteItemKind::Action {
+                id: PaletteActionId::Quit,
+                shortcut: "ctrl+q",
+            },
             label: "Salir".to_string(),
         },
     ]
 }
-

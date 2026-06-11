@@ -58,7 +58,7 @@ impl<'a> Widget for SidebarWidget<'a> {
             .enumerate()
             .map(|(i, entry)| {
                 let indent = "  ".repeat(entry.depth);
-                let icon = if entry.is_dir { " " } else { " " };
+                let icon = " ";
                 let label = format!("{indent}{icon}{}", entry.name);
 
                 let style = if i == self.selected {

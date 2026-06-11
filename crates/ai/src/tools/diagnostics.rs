@@ -1,11 +1,11 @@
+use super::{tool_parameters_schema, validate_tool_args, Tool};
+use crate::provider::ToolDef;
 use async_trait::async_trait;
 use color_eyre::Result;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
 use std::sync::Arc;
-use crate::provider::ToolDef;
-use super::{Tool, tool_parameters_schema, validate_tool_args};
+use tokio::sync::RwLock;
 
 /// Expone los diagnósticos LSP del buffer activo al modelo.
 /// Los diagnósticos se inyectan desde fuera a través de `set_diagnostics`.
@@ -19,7 +19,9 @@ pub struct DiagnosticsArgs {}
 
 impl DiagnosticsTool {
     pub fn new() -> Self {
-        Self { diagnostics: Arc::new(RwLock::new(vec![])) }
+        Self {
+            diagnostics: Arc::new(RwLock::new(vec![])),
+        }
     }
 
     pub fn shared(&self) -> Arc<RwLock<Vec<String>>> {
@@ -28,7 +30,9 @@ impl DiagnosticsTool {
 }
 
 impl Default for DiagnosticsTool {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[async_trait]
@@ -36,7 +40,8 @@ impl Tool for DiagnosticsTool {
     fn definition(&self) -> ToolDef {
         ToolDef {
             name: "get_diagnostics".into(),
-            description: "Devuelve los errores y advertencias LSP del archivo activo en el editor.".into(),
+            description: "Devuelve los errores y advertencias LSP del archivo activo en el editor."
+                .into(),
             parameters: tool_parameters_schema::<DiagnosticsArgs>(),
         }
     }

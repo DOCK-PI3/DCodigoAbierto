@@ -1,9 +1,9 @@
+use super::{tool_parameters_schema, validate_tool_args, Tool};
+use crate::provider::ToolDef;
 use async_trait::async_trait;
-use color_eyre::{Result, eyre::eyre};
+use color_eyre::{eyre::eyre, Result};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use crate::provider::ToolDef;
-use super::{Tool, tool_parameters_schema, validate_tool_args};
 
 pub struct GlobTool;
 
@@ -58,9 +58,7 @@ impl Tool for GlobTool {
 /// Implementación glob simple usando `std::fs` sincrono en spawn_blocking
 async fn collect_glob(pattern: &str, out: &mut Vec<String>) {
     let pattern = pattern.to_string();
-    let result = tokio::task::spawn_blocking(move || {
-        glob_walk(&pattern)
-    }).await;
+    let result = tokio::task::spawn_blocking(move || glob_walk(&pattern)).await;
 
     if let Ok(paths) = result {
         out.extend(paths);
@@ -80,8 +78,8 @@ fn glob_walk(pattern: &str) -> Vec<String> {
 fn split_glob(path: &std::path::Path) -> (String, String) {
     let s = path.to_string_lossy().to_string();
     // Todo antes del primer '*' o '?' es el directorio base
-    if let Some(pos) = s.find(|c| c == '*' || c == '?') {
-        let dir_end = s[..pos].rfind('/').map(|p| p + 1).unwrap_or(0);
+    if let Some(pos) = s.find(['*', '?']) {
+        let dir_end = s[..pos].rfind(['/', '\\']).map(|p| p + 1).unwrap_or(0);
         (s[..dir_end].to_string(), s[dir_end..].to_string())
     } else {
         (s, String::new())
@@ -104,9 +102,13 @@ fn glob_match_inner(p: &[char], t: &[char]) -> bool {
         (Some('*'), _) if p.len() >= 2 && p[1] == '*' => {
             // ** matches any sequence including /
             let rest = &p[2..];
-            if rest.is_empty() { return true; }
+            if rest.is_empty() {
+                return true;
+            }
             for i in 0..=t.len() {
-                if glob_match_inner(rest, &t[i..]) { return true; }
+                if glob_match_inner(rest, &t[i..]) {
+                    return true;
+                }
             }
             false
         }
@@ -114,8 +116,12 @@ fn glob_match_inner(p: &[char], t: &[char]) -> bool {
             // * matches anything except /
             let rest = &p[1..];
             for i in 0..=t.len() {
-                if t[..i].contains(&'/') { break; }
-                if glob_match_inner(rest, &t[i..]) { return true; }
+                if t[..i].contains(&'/') {
+                    break;
+                }
+                if glob_match_inner(rest, &t[i..]) {
+                    return true;
+                }
             }
             false
         }
@@ -125,23 +131,40 @@ fn glob_match_inner(p: &[char], t: &[char]) -> bool {
     }
 }
 
-fn walk_dir(
-    dir: &std::path::Path,
-    pattern: &str,
-    base: &str,
-    out: &mut Vec<String>,
-    depth: usize,
-) {
-    if depth > 20 { return; }
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+fn walk_dir(dir: &std::path::Path, pattern: &str, base: &str, out: &mut Vec<String>, depth: usize) {
+    if depth > 20 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
-        let rel = path.strip_prefix(base).unwrap_or(&path).to_string_lossy().to_string();
+        if is_ignored_dir(&path) {
+            continue;
+        }
+        let rel = path
+            .strip_prefix(base)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
         if path.is_dir() {
             walk_dir(&path, pattern, base, out, depth + 1);
         } else if matches_glob(&rel, pattern) {
             out.push(path.to_string_lossy().to_string());
-            if out.len() >= 200 { return; }
+            if out.len() >= 200 {
+                return;
+            }
         }
     }
+}
+
+fn is_ignored_dir(path: &std::path::Path) -> bool {
+    if !path.is_dir() {
+        return false;
+    }
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    name == ".git" || name == "target" || name == "node_modules" || name == ".cache"
 }

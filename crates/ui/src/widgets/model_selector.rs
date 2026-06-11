@@ -16,19 +16,32 @@ impl<'a> Widget for ModelSelectorWidget<'a> {
         let height = (self.models.len() as u16 + 2).min(20).min(area.height);
         let x = area.x + (area.width.saturating_sub(width)) / 2;
         let y = area.y + (area.height.saturating_sub(height)) / 2;
-        let popup = Rect { x, y, width, height };
+        let popup = Rect {
+            x,
+            y,
+            width,
+            height,
+        };
 
         Clear.render(popup, buf);
 
-        let items: Vec<ListItem> = self.models.iter().enumerate().map(|(i, m)| {
-            if i == self.selected {
-                ListItem::new(format!(" ▶ {m}"))
-                    .style(Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD))
-            } else {
-                ListItem::new(format!("   {m}"))
-                    .style(Style::default().fg(Color::White))
-            }
-        }).collect();
+        let items: Vec<ListItem> = self
+            .models
+            .iter()
+            .enumerate()
+            .map(|(i, m)| {
+                if i == self.selected {
+                    ListItem::new(format!(" ▶ {m}")).style(
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                } else {
+                    ListItem::new(format!("   {m}")).style(Style::default().fg(Color::White))
+                }
+            })
+            .collect();
 
         let block = Block::default()
             .borders(Borders::ALL)

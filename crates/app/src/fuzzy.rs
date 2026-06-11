@@ -1,4 +1,7 @@
-use nucleo::{Config, Nucleo, pattern::{CaseMatching, Normalization}};
+use nucleo::{
+    pattern::{CaseMatching, Normalization},
+    Config, Nucleo,
+};
 use std::sync::Mutex;
 
 /// Motor de fuzzy finding reusable.
@@ -16,12 +19,8 @@ impl std::fmt::Debug for FuzzyEngine {
 impl FuzzyEngine {
     /// Construye el motor con la lista completa de candidatos.
     pub fn new(candidates: &[String]) -> Self {
-        let mut matcher = Nucleo::<String>::new(
-            Config::DEFAULT,
-            std::sync::Arc::new(|| {}),
-            None,
-            1,
-        );
+        let mut matcher =
+            Nucleo::<String>::new(Config::DEFAULT, std::sync::Arc::new(|| {}), None, 1);
         let injector = matcher.injector();
         for path in candidates {
             let _ = injector.push(path.clone(), |s, cols| {
@@ -35,7 +34,9 @@ impl FuzzyEngine {
                 break;
             }
         }
-        Self { matcher: Mutex::new(matcher) }
+        Self {
+            matcher: Mutex::new(matcher),
+        }
     }
 
     /// Reconstruye el motor con nuevos candidatos (cuando el file tree cambia).
@@ -73,7 +74,9 @@ impl FuzzyEngine {
         }
 
         let mut matcher = self.matcher.lock().unwrap();
-        matcher.pattern.reparse(0, query, CaseMatching::Smart, Normalization::Smart, false);
+        matcher
+            .pattern
+            .reparse(0, query, CaseMatching::Smart, Normalization::Smart, false);
 
         for _ in 0..20 {
             let status = matcher.tick(10);
@@ -97,12 +100,7 @@ pub fn fuzzy_filter(query: &str, candidates: &[String]) -> Vec<String> {
         return candidates.to_vec();
     }
 
-    let mut matcher = Nucleo::<String>::new(
-        Config::DEFAULT,
-        std::sync::Arc::new(|| {}),
-        None,
-        1,
-    );
+    let mut matcher = Nucleo::<String>::new(Config::DEFAULT, std::sync::Arc::new(|| {}), None, 1);
 
     let injector = matcher.injector();
     for path in candidates {
@@ -115,7 +113,9 @@ pub fn fuzzy_filter(query: &str, candidates: &[String]) -> Vec<String> {
     matcher.tick(10);
 
     // Parsear el patrón directamente con &str
-    matcher.pattern.reparse(0, query, CaseMatching::Smart, Normalization::Smart, false);
+    matcher
+        .pattern
+        .reparse(0, query, CaseMatching::Smart, Normalization::Smart, false);
 
     // Ticks para aplicar el filtro
     for _ in 0..20 {
@@ -132,4 +132,3 @@ pub fn fuzzy_filter(query: &str, candidates: &[String]) -> Vec<String> {
         .map(|item| item.data.clone())
         .collect()
 }
-

@@ -69,42 +69,56 @@ struct OllamaModelsResponse {
 // ── Construcción del cuerpo de la petición ───────────────────────────────────
 
 fn build_messages(messages: &[AiMessage]) -> Vec<serde_json::Value> {
-    messages.iter().map(|m| {
-        let role = match m.role {
-            AiRole::System    => "system",
-            AiRole::User      => "user",
-            AiRole::Assistant => "assistant",
-            AiRole::Tool      => "tool",
-        };
-        if let Some(tr) = &m.tool_result {
-            serde_json::json!({ "role": role, "content": tr.content })
-        } else if !m.tool_calls.is_empty() {
-            let calls: Vec<_> = m.tool_calls.iter().map(|tc| {
-                serde_json::json!({
-                    "function": { "name": tc.name, "arguments": tc.arguments }
-                })
-            }).collect();
-            serde_json::json!({ "role": role, "content": m.content, "tool_calls": calls })
-        } else {
-            serde_json::json!({ "role": role, "content": m.content })
-        }
-    }).collect()
+    messages
+        .iter()
+        .map(|m| {
+            let role = match m.role {
+                AiRole::System => "system",
+                AiRole::User => "user",
+                AiRole::Assistant => "assistant",
+                AiRole::Tool => "tool",
+            };
+            if let Some(tr) = &m.tool_result {
+                serde_json::json!({ "role": role, "content": tr.content })
+            } else if !m.tool_calls.is_empty() {
+                let calls: Vec<_> = m
+                    .tool_calls
+                    .iter()
+                    .map(|tc| {
+                        serde_json::json!({
+                            "function": { "name": tc.name, "arguments": tc.arguments }
+                        })
+                    })
+                    .collect();
+                serde_json::json!({ "role": role, "content": m.content, "tool_calls": calls })
+            } else {
+                serde_json::json!({ "role": role, "content": m.content })
+            }
+        })
+        .collect()
 }
 
 fn build_tools(tools: &[ToolDef]) -> Vec<serde_json::Value> {
-    tools.iter().map(|t| serde_json::json!({
-        "type": "function",
-        "function": {
-            "name": t.name,
-            "description": t.description,
-            "parameters": t.parameters,
-        }
-    })).collect()
+    tools
+        .iter()
+        .map(|t| {
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters,
+                }
+            })
+        })
+        .collect()
 }
 
 #[async_trait]
 impl AiProvider for OllamaProvider {
-    fn name(&self) -> &str { "ollama" }
+    fn name(&self) -> &str {
+        "ollama"
+    }
 
     async fn list_models(&self) -> Result<Vec<String>> {
         let url = format!("{}/api/tags", self.base_url);
@@ -150,6 +164,7 @@ impl AiProvider for OllamaProvider {
         }
 
         let mut stream = resp.bytes_stream();
+        let mut stream_buffer = String::new();
         let mut accumulated_text = String::new();
         let mut has_native_tool_calls = false;
 
@@ -162,11 +177,13 @@ impl AiProvider for OllamaProvider {
                 }
             };
 
-            for line in std::str::from_utf8(&bytes).unwrap_or("").lines() {
-                let line = line.trim();
-                if line.is_empty() { continue; }
+            for line in drain_complete_lines(&mut stream_buffer, &bytes) {
+                let line = line.trim().to_string();
+                if line.is_empty() {
+                    continue;
+                }
 
-                match serde_json::from_str::<OllamaChatResponse>(line) {
+                match serde_json::from_str::<OllamaChatResponse>(&line) {
                     Ok(resp) => {
                         // Tool calls nativos (function calling del modelo)
                         for tc in &resp.message.tool_calls {
@@ -197,6 +214,43 @@ impl AiProvider for OllamaProvider {
                     Err(e) => {
                         debug!("ollama parse error: {e} | line: {line}");
                     }
+                }
+            }
+        }
+
+        for line in drain_remaining_line(&mut stream_buffer) {
+            let line = line.trim().to_string();
+            if line.is_empty() {
+                continue;
+            }
+
+            match serde_json::from_str::<OllamaChatResponse>(&line) {
+                Ok(resp) => {
+                    for tc in &resp.message.tool_calls {
+                        has_native_tool_calls = true;
+                        let id = format!("call_{}", uuid_simple());
+                        let _ = tx.send(AiEvent::ToolCallRequest(ToolCall {
+                            id,
+                            name: tc.function.name.clone(),
+                            arguments: tc.function.arguments.clone(),
+                            buffer_version: None,
+                            target_buffer_id: None,
+                        }));
+                    }
+                    if !resp.message.content.is_empty() {
+                        accumulated_text.push_str(&resp.message.content);
+                        let _ = tx.send(AiEvent::Chunk(resp.message.content));
+                    }
+                    if resp.done {
+                        if !has_native_tool_calls && !tools.is_empty() {
+                            emit_text_tool_calls(&accumulated_text, &tx);
+                        }
+                        let _ = tx.send(AiEvent::Done);
+                        return Ok(());
+                    }
+                }
+                Err(e) => {
+                    debug!("ollama parse error: {e} | line: {line}");
                 }
             }
         }
@@ -237,7 +291,9 @@ fn emit_text_tool_calls(accumulated_text: &str, tx: &UnboundedSender<AiEvent>) {
                 '"' => in_string = !in_string,
                 '{' if !in_string => depth += 1,
                 '}' if !in_string => {
-                    if depth == 0 { break; }
+                    if depth == 0 {
+                        break;
+                    }
                     depth -= 1;
                     if depth == 0 {
                         end = i + 1;
@@ -258,7 +314,10 @@ fn emit_text_tool_calls(accumulated_text: &str, tx: &UnboundedSender<AiEvent>) {
         match serde_json::from_str::<serde_json::Value>(json_str) {
             Ok(obj) => {
                 let tool_name = obj.get("tool").and_then(|v| v.as_str()).unwrap_or("");
-                let arguments = obj.get("arguments").cloned().unwrap_or(serde_json::json!({}));
+                let arguments = obj
+                    .get("arguments")
+                    .cloned()
+                    .unwrap_or(serde_json::json!({}));
                 if !tool_name.is_empty() {
                     let id = format!("call_{}", uuid_simple());
                     warn!(
@@ -285,6 +344,28 @@ fn emit_text_tool_calls(accumulated_text: &str, tx: &UnboundedSender<AiEvent>) {
 
 fn uuid_simple() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let t = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().subsec_nanos();
+    let t = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .subsec_nanos();
     format!("{t:08x}")
+}
+
+fn drain_complete_lines(buffer: &mut String, bytes: &[u8]) -> Vec<String> {
+    buffer.push_str(&String::from_utf8_lossy(bytes));
+    let mut lines = Vec::new();
+    while let Some(pos) = buffer.find('\n') {
+        let line: String = buffer.drain(..=pos).collect();
+        lines.push(line.trim_end_matches(['\r', '\n']).to_string());
+    }
+    lines
+}
+
+fn drain_remaining_line(buffer: &mut String) -> Vec<String> {
+    if buffer.trim().is_empty() {
+        buffer.clear();
+        Vec::new()
+    } else {
+        vec![std::mem::take(buffer)]
+    }
 }
